@@ -339,7 +339,7 @@ TranslationConfig(
 ## 📚 Additional Resources
 
 * **Sample Policies:** `/samples` directory (12 files)
-* **Test Results:** `test_results_mvp1.csv`
+* **Test Results:** `[removed - see live test results in app]`
 * **Documentation:** `README.md`, `MVP1_SUMMARY.md`
 * **Original App:** `app_original_backup.py` (if needed)
 

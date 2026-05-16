@@ -68,8 +68,17 @@ def run(verbose=True):
             parser.parse_json(data)
             policies = parser.policies
             
+            # Set tag metadata if available (for tag-based policies)
+            if 'tagDefinitions' in data and 'resourceTags' in data:
+                translator.set_tag_metadata(data['tagDefinitions'], data['resourceTags'])
+            
             # Translation
-            sql_statements = translator.translate_all(policies)
+            uc_policies = translator.translate_all(policies)
+            
+            # Extract SQL statements from UCPolicy objects
+            sql_statements = []
+            for uc_policy in uc_policies:
+                sql_statements.extend(uc_policy.sql_statements)
             
             elapsed = (time.time() - start) * 1000
             results.append({

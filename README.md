@@ -20,6 +20,7 @@ This comprehensive solution automates the migration of Apache Ranger policies to
 | **Access Control (ACL)** | ✅ Full | 3 samples | 100% |
 | **Row-level Filters** | ✅ Full | 3 samples | 100% |
 | **Column Masking** | ✅ Full | 3 samples | 100% |
+| **MASK_NONE (Conditional)** | ✅ Full | Included | 100% |
 | **Tag-based Policies** | ✅ Full | 3 samples | 100% |
 
 **Total:** 12 test samples, 118 SQL statements generated, 0 errors
@@ -113,12 +114,10 @@ ranger-uc-translator/
 │
 ├── 📁 docs/                      # Documentation
 │   ├── APP_USER_GUIDE.md        # Streamlit app usage guide
-│   ├── DEPLOYMENT_GUIDE.md      # Deployment instructions
 │   └── GIT_INTEGRATION.md       # Git setup guide
 │
 ├── 📁 tests/                     # Test Files
 │   ├── setup.sql                # Audit table setup
-│   └── test_results_mvp1.csv    # MVP1 validation results
 │
 └── 📁 backups/                   # Archived Versions
     ├── app_enhanced.py          # Previous version
@@ -696,12 +695,11 @@ print(f'Generated {len(policies)} UC policies')
 - **[PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md)** - Complete project structure guide
 - **[docs/APP_USER_GUIDE.md](docs/APP_USER_GUIDE.md)** - Complete Streamlit app usage guide
 - **[docs/GIT_INTEGRATION.md](docs/GIT_INTEGRATION.md)** - Git setup and deployment
-- **[docs/DEPLOYMENT_GUIDE.md](docs/DEPLOYMENT_GUIDE.md)** - Deployment instructions
+- **[DEPLOYMENT.md](DEPLOYMENT.md)** - Deployment instructions
 
 ### Sample Files
 
 - **[samples/README.md](samples/README.md)** - Sample policy descriptions
-- **[tests/test_results_mvp1.csv](tests/test_results_mvp1.csv)** - Validation test data
 
 ### External Links
 

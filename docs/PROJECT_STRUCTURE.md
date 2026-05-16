@@ -42,7 +42,6 @@ ranger-uc-translator/
 │
 ├── tests/                      # Test files and results
 │   ├── setup.sql              # UC setup SQL scripts
-│   └── test_results_mvp1.csv  # MVP1 test results
 │
 └── backups/                    # Backup/archive files
     ├── app_enhanced.py        # Previous version

@@ -41,6 +41,7 @@ RESOURCE_TYPE_MAPPING = {
 
 # Column masking function templates
 MASKING_FUNCTIONS = {
+    "MASK_NONE": "column_value",  # No masking - return original value
     "MASK": "CASE WHEN is_account_group_member('{group}') THEN {{column}} ELSE 'XXXXX' END",
     "MASK_SHOW_LAST_4": "CASE WHEN is_account_group_member('{group}') THEN {{column}} ELSE CONCAT(REPEAT('X', LENGTH({{column}})-4), RIGHT({{column}}, 4)) END",
     "MASK_SHOW_FIRST_4": "CASE WHEN is_account_group_member('{group}') THEN {{column}} ELSE CONCAT(LEFT({{column}}, 4), REPEAT('X', LENGTH({{column}})-4)) END",

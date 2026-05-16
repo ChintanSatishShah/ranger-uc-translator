@@ -31,6 +31,21 @@ if "validation_results" not in st.session_state:
     st.session_state.validation_results = None
 if "translation_stats" not in st.session_state:
     st.session_state.translation_stats = None
+# Track previous values to detect changes
+if "previous_json" not in st.session_state:
+    st.session_state.previous_json = ""
+if "previous_sample" not in st.session_state:
+    st.session_state.previous_sample = "-- Select a sample --"
+if "previous_uploaded_file" not in st.session_state:
+    st.session_state.previous_uploaded_file = None
+
+
+# Helper function to clear right-side outputs
+def clear_outputs():
+    """Clear all outputs on the right side when new JSON is loaded."""
+    st.session_state.translated_sql = []
+    st.session_state.validation_results = None
+    st.session_state.translation_stats = None
 
 # ==================== HEADER ====================
 st.title("🔐 Ranger → UC Policy Translator")
@@ -55,10 +70,20 @@ with left_col:
             key="file_uploader",
             help="Upload a JSON file containing Ranger policies"
         )
+        
+        # Detect file change (including switching to/from upload tab with different file)
+        current_file_id = uploaded_file.name if uploaded_file is not None else None
+        if current_file_id != st.session_state.previous_uploaded_file:
+            clear_outputs()
+            st.session_state.previous_uploaded_file = current_file_id
+        
         if uploaded_file is not None:
             try:
                 content = uploaded_file.read().decode("utf-8")
-                st.session_state.current_json = content
+                # Update JSON only if content actually changed
+                if content != st.session_state.current_json:
+                    st.session_state.current_json = content
+                    st.session_state.previous_json = content
                 st.success(f"✅ Loaded {uploaded_file.name}")
             except Exception as e:
                 st.error(f"❌ Error reading file: {str(e)}")
@@ -73,7 +98,9 @@ with left_col:
         )
         if st.button("Load Pasted JSON", key="load_paste", use_container_width=True):
             if pasted_json.strip():
+                clear_outputs()  # Clear when loading pasted JSON
                 st.session_state.current_json = pasted_json
+                st.session_state.previous_json = pasted_json
                 st.success("✅ JSON loaded from paste")
             else:
                 st.warning("⚠️ Please paste JSON content first")
@@ -91,12 +118,18 @@ with left_col:
                     key="sample_selector"
                 )
                 
-                if selected_sample != "-- Select a sample --":
-                    sample_path = samples_dir / selected_sample
-                    if st.button("Load Sample", key="load_sample", use_container_width=True):
+                # Auto-load when dropdown changes (no button needed)
+                if selected_sample != st.session_state.previous_sample:
+                    clear_outputs()  # Clear immediately on dropdown change
+                    st.session_state.previous_sample = selected_sample
+                    
+                    if selected_sample != "-- Select a sample --":
+                        sample_path = samples_dir / selected_sample
                         try:
                             with open(sample_path, "r") as f:
-                                st.session_state.current_json = f.read()
+                                new_content = f.read()
+                            st.session_state.current_json = new_content
+                            st.session_state.previous_json = new_content
                             st.success(f"✅ Loaded {selected_sample}")
                         except Exception as e:
                             st.error(f"❌ Error loading sample: {str(e)}")
@@ -130,7 +163,10 @@ with left_col:
     
     # Update session state if user manually edits JSON
     if json_display != st.session_state.current_json:
+        if json_display != st.session_state.previous_json:
+            clear_outputs()  # Clear immediately when JSON content changes
         st.session_state.current_json = json_display
+        st.session_state.previous_json = json_display
 
 # ==================== RIGHT COLUMN: SQL OUTPUT & ACTIONS (60%) ====================
 with right_col:
@@ -189,25 +225,64 @@ with right_col:
                     # Parse JSON
                     policy_data = json.loads(st.session_state.current_json)
                     
-                    # Validate using RangerPolicyValidator - CORRECT METHOD
+                    # Validate using RangerPolicyValidator
                     validator = RangerPolicyValidator()
-                    result = validator.validate_policy_json(policy_data)
                     
-                    st.session_state.validation_results = {
-                        "valid": result.is_valid,
-                        "errors": result.errors,
-                        "warnings": result.warnings
-                    }
+                    # Handle export format (with 'policies' array) vs single policy
+                    is_export = 'policies' in policy_data and isinstance(policy_data.get('policies'), list)
                     
-                    if result.is_valid:
-                        st.success("✅ JSON is valid and ready for translation")
-                        if result.warnings:
-                            for warning in result.warnings:
-                                st.warning(f"⚠️ {warning}")
+                    if is_export:
+                        # Validate each policy individually for export format
+                        all_valid = True
+                        all_errors = []
+                        all_warnings = []
+                        
+                        for idx, policy in enumerate(policy_data['policies']):
+                            result = validator.validate_policy_json(policy)
+                            if not result.is_valid:
+                                all_valid = False
+                                all_errors.extend([f"Policy {idx+1}: {err}" for err in result.errors])
+                            all_warnings.extend([f"Policy {idx+1}: {warn}" for warn in result.warnings])
+                        
+                        st.session_state.validation_results = {
+                            "valid": all_valid,
+                            "errors": all_errors,
+                            "warnings": all_warnings
+                        }
+                        
+                        if all_valid:
+                            policy_count = len(policy_data['policies'])
+                            st.success(f"✅ All {policy_count} policies are valid and ready for translation")
+                            if all_warnings:
+                                for warning in all_warnings[:5]:  # Show first 5 warnings
+                                    st.warning(f"⚠️ {warning}")
+                                if len(all_warnings) > 5:
+                                    st.info(f"... and {len(all_warnings) - 5} more warnings")
+                        else:
+                            st.error("❌ Validation failed")
+                            for error in all_errors[:5]:  # Show first 5 errors
+                                st.error(f"❌ {error}")
+                            if len(all_errors) > 5:
+                                st.info(f"... and {len(all_errors) - 5} more errors")
                     else:
-                        st.error("❌ Validation failed")
-                        for error in result.errors:
-                            st.error(f"❌ {error}")
+                        # Single policy validation
+                        result = validator.validate_policy_json(policy_data)
+                        
+                        st.session_state.validation_results = {
+                            "valid": result.is_valid,
+                            "errors": result.errors,
+                            "warnings": result.warnings
+                        }
+                        
+                        if result.is_valid:
+                            st.success("✅ JSON is valid and ready for translation")
+                            if result.warnings:
+                                for warning in result.warnings:
+                                    st.warning(f"⚠️ {warning}")
+                        else:
+                            st.error("❌ Validation failed")
+                            for error in result.errors:
+                                st.error(f"❌ {error}")
                 
                 except json.JSONDecodeError as e:
                     st.error(f"❌ Invalid JSON format: {str(e)}")
@@ -234,7 +309,7 @@ with right_col:
                     # Parse JSON
                     policy_data = json.loads(st.session_state.current_json)
                     
-                    # Parse policies using RangerPolicyParser - CORRECT METHOD
+                    # Parse policies using RangerPolicyParser
                     parser = RangerPolicyParser()
                     parser.parse_json(policy_data)
                     policies = parser.policies
@@ -245,7 +320,21 @@ with right_col:
                         apply_grants=True
                     )
                     translator = EnhancedPolicyTranslator(config)
-                    sql_statements = translator.translate_all(policies)
+                    
+                    # Set tag metadata if available (for tag-based policies)
+                    if 'tagDefinitions' in policy_data and 'resourceTags' in policy_data:
+                        tag_definitions = policy_data['tagDefinitions']
+                        resource_tags = policy_data['resourceTags']
+                        translator.set_tag_metadata(tag_definitions, resource_tags)
+                        st.info(f"ℹ️ Detected {len(tag_definitions)} tag definitions and {len(resource_tags)} tagged resources")
+                    
+                    uc_policies = translator.translate_all(policies)
+                    
+                    # Extract SQL statements from UCPolicy objects
+                    # Each UCPolicy has a sql_statements list that we need to flatten
+                    sql_statements = []
+                    for uc_policy in uc_policies:
+                        sql_statements.extend(uc_policy.sql_statements)
                     
                     # Store results in session state
                     st.session_state.translated_sql = sql_statements
@@ -253,6 +342,13 @@ with right_col:
                         "policies": len(policies),
                         "statements": len(sql_statements)
                     }
+                    
+                    # Show translator errors if any
+                    if translator.errors:
+                        st.warning(f"⚠️ Translation completed with {len(translator.errors)} warnings")
+                        with st.expander("View Translation Warnings"):
+                            for error in translator.errors:
+                                st.text(f"• {error}")
                     
                     st.success(
                         f"✅ Translation complete! Generated {len(sql_statements)} SQL statements "
@@ -292,19 +388,18 @@ with right_col:
     if st.session_state.translated_sql:
         st.markdown("**Generated SQL Statements:**")
         
-        # Create numbered SQL output
+        # Create numbered SQL output with proper formatting
         numbered_sql = []
         for i, stmt in enumerate(st.session_state.translated_sql, 1):
             numbered_sql.append(f"-- Statement {i}\n{stmt}")
         
         full_sql = "\n\n".join(numbered_sql)
         
-        st.text_area(
-            "SQL Output",
-            value=full_sql,
-            height=400,
-            key="sql_output",
-            label_visibility="collapsed"
+        # Use st.code for better SQL formatting with syntax highlighting
+        st.code(
+            full_sql,
+            language="sql",
+            line_numbers=False
         )
     else:
         st.info("👆 Click **Translate** to generate SQL statements")

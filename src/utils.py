@@ -181,6 +181,20 @@ def generate_masking_function_name(table: str, column: str, mask_type: str) -> s
     
     return f"mask_{clean_table}_{clean_column}_{clean_mask}"
 
+def generate_row_filter_function_name(table: str, policy_id, item_idx) -> str:
+    """Generate consistent naming for row filter functions."""
+    # Convert all inputs to strings FIRST
+    table_str = str(table)
+    policy_id_str = str(policy_id)
+    item_idx_str = str(item_idx)
+    
+    # Then sanitize to create valid function name
+    clean_table = re.sub(r'[^a-zA-Z0-9_]', '_', table_str)
+    clean_policy = re.sub(r'[^a-zA-Z0-9_]', '_', policy_id_str)
+    clean_idx = re.sub(r'[^a-zA-Z0-9_]', '_', item_idx_str)
+    
+    return f"rf_{clean_table}_{clean_policy}_{clean_idx}"
+
 def safe_json_loads(json_str: str) -> Optional[Dict]:
     """Safely load JSON string with error handling."""
     try:
