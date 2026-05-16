@@ -6,8 +6,8 @@ Executes translated SQL statements via Databricks SQL.
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 from datetime import datetime
-from translator import UCPolicy
-from config import TranslationConfig, AUDIT_TABLES
+from .translator import UCPolicy
+from .config import TranslationConfig, AUDIT_TABLES
 import pandas as pd
 
 @dataclass

@@ -63,14 +63,58 @@ def extract_principals(policy_item: Dict[str, Any]) -> List[Dict[str, str]]:
     
     return principals
 
-def format_sql_statement(sql: str) -> str:
-    """Format SQL statement for readability."""
-    # Remove extra whitespace
+def format_sql_statement(sql: str, policy_name: Optional[str] = None, 
+                        policy_id: Optional[str] = None, 
+                        policy_description: Optional[str] = None) -> str:
+    """
+    Format SQL statement for readability with optional policy metadata.
+    
+    Args:
+        sql: The SQL statement to format
+        policy_name: Optional Ranger policy name
+        policy_id: Optional Ranger policy ID  
+        policy_description: Optional policy description
+        
+    Returns:
+        Formatted SQL with metadata comments
+    """
+    # Build header comment with policy metadata
+    header_lines = []
+    if policy_name or policy_id:
+        header_lines.append("-- " + "=" * 78)
+        if policy_name:
+            header_lines.append(f"-- Ranger Policy: {policy_name}")
+        if policy_id:
+            header_lines.append(f"-- Policy ID: {policy_id}")
+        if policy_description:
+            # Wrap long descriptions
+            desc_lines = [policy_description[i:i+70] for i in range(0, len(policy_description), 70)]
+            header_lines.append(f"-- Description: {desc_lines[0]}")
+            for line in desc_lines[1:]:
+                header_lines.append(f"--              {line}")
+        header_lines.append("-- " + "=" * 78)
+    
+    # Format the SQL statement
+    sql = sql.strip()
+    
+    # Remove excessive whitespace
     sql = re.sub(r'\s+', ' ', sql)
-    # Add semicolon if not present
+    
+    # Add proper line breaks for readability
+    # Break before major keywords
+    sql = re.sub(r'\s+(FROM|WHERE|AND|OR|GROUP BY|ORDER BY|HAVING|LIMIT)\s+', r'\n  \1 ', sql, flags=re.IGNORECASE)
+    sql = re.sub(r'\s+(INNER|LEFT|RIGHT|FULL|CROSS)\s+JOIN\s+', r'\n  \1 JOIN ', sql, flags=re.IGNORECASE)
+    sql = re.sub(r'\s+(ON|TO|SET)\s+', r'\n  \1 ', sql, flags=re.IGNORECASE)
+    
+    # Ensure semicolon at end
     if not sql.strip().endswith(';'):
         sql = sql.strip() + ';'
-    return sql
+    
+    # Combine header and SQL
+    if header_lines:
+        return '\n'.join(header_lines) + '\n' + sql
+    else:
+        return sql
 
 def create_audit_record(policy_id: str, policy_type: str, status: str, 
                        message: str, sql_statements: Optional[List[str]] = None) -> Dict[str, Any]:
