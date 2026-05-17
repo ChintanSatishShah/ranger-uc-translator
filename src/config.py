@@ -39,14 +39,17 @@ RESOURCE_TYPE_MAPPING = {
     "udf": "function"
 }
 
-# Column masking function templates
+# Column masking function expressions
+# These are just the masking expressions - the translator builds the full CASE statement
 MASKING_FUNCTIONS = {
-    "MASK": "CASE WHEN is_account_group_member('{group}') THEN {{column}} ELSE 'XXXXX' END",
-    "MASK_SHOW_LAST_4": "CASE WHEN is_account_group_member('{group}') THEN {{column}} ELSE CONCAT(REPEAT('X', LENGTH({{column}})-4), RIGHT({{column}}, 4)) END",
-    "MASK_SHOW_FIRST_4": "CASE WHEN is_account_group_member('{group}') THEN {{column}} ELSE CONCAT(LEFT({{column}}, 4), REPEAT('X', LENGTH({{column}})-4)) END",
-    "MASK_HASH": "CASE WHEN is_account_group_member('{group}') THEN {{column}} ELSE SHA2({{column}}, 256) END",
-    "MASK_NULL": "CASE WHEN is_account_group_member('{group}') THEN {{column}} ELSE NULL END",
-    "MASK_DATE_SHOW_YEAR": "CASE WHEN is_account_group_member('{group}') THEN {{column}} ELSE MAKE_DATE(YEAR({{column}}), 1, 1) END"
+    "MASK_NONE": "{column}",  # No masking - return original value
+    "MASK": "'XXXXX'",  # Replace with fixed string
+    "MASK_SHOW_LAST_4": "CONCAT(REPEAT('X', LENGTH({column})-4), RIGHT({column}, 4))",
+    "MASK_SHOW_FIRST_4": "CONCAT(LEFT({column}, 4), REPEAT('X', LENGTH({column})-4))",
+    "MASK_HASH": "SHA2({column}, 256)",  # Hash the value
+    "MASK_NULL": "NULL",  # Replace with NULL
+    "MASK_DATE_SHOW_YEAR": "MAKE_DATE(YEAR({column}), 1, 1)",  # Show only year
+    "MASK_REDACT": "'[REDACTED]'"  # Redact with label
 }
 
 @dataclass
