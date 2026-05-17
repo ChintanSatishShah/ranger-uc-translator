@@ -172,8 +172,8 @@ with left_col:
 with right_col:
     st.subheader("📝 SQL Output & Actions")
     
-    # Action buttons in three columns
-    btn_col1, btn_col2, btn_col3 = st.columns(3)
+    # Action buttons in two columns
+    btn_col1, btn_col2 = st.columns(2)
     
     with btn_col1:
         validate_clicked = st.button(
@@ -191,28 +191,6 @@ with right_col:
             help="Translate policies to Unity Catalog SQL"
         )
     
-    with btn_col3:
-        download_enabled = len(st.session_state.translated_sql) > 0
-        if download_enabled:
-            sql_content = "\n\n".join(st.session_state.translated_sql)
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"uc_policies_{timestamp}.sql"
-            st.download_button(
-                label="📥 Download",
-                data=sql_content,
-                file_name=filename,
-                mime="text/plain",
-                use_container_width=True,
-                help="Download generated SQL statements"
-            )
-        else:
-            st.button(
-                "📥 Download", 
-                use_container_width=True, 
-                disabled=True,
-                help="Translate first to enable download"
-            )
-    
     st.divider()
     
     # ==================== HANDLE VALIDATE BUTTON ====================
@@ -227,62 +205,26 @@ with right_col:
                     
                     # Validate using RangerPolicyValidator
                     validator = RangerPolicyValidator()
+                    result = validator.validate_ranger_export(policy_data)
                     
-                    # Handle export format (with 'policies' array) vs single policy
-                    is_export = 'policies' in policy_data and isinstance(policy_data.get('policies'), list)
+                    # Store validation results
+                    st.session_state.validation_results = {
+                        "valid": result.is_valid,
+                        "errors": result.errors,
+                        "warnings": result.warnings
+                    }
                     
-                    if is_export:
-                        # Validate each policy individually for export format
-                        all_valid = True
-                        all_errors = []
-                        all_warnings = []
-                        
-                        for idx, policy in enumerate(policy_data['policies']):
-                            result = validator.validate_policy_json(policy)
-                            if not result.is_valid:
-                                all_valid = False
-                                all_errors.extend([f"Policy {idx+1}: {err}" for err in result.errors])
-                            all_warnings.extend([f"Policy {idx+1}: {warn}" for warn in result.warnings])
-                        
-                        st.session_state.validation_results = {
-                            "valid": all_valid,
-                            "errors": all_errors,
-                            "warnings": all_warnings
-                        }
-                        
-                        if all_valid:
-                            policy_count = len(policy_data['policies'])
-                            st.success(f"✅ All {policy_count} policies are valid and ready for translation")
-                            if all_warnings:
-                                for warning in all_warnings[:5]:  # Show first 5 warnings
-                                    st.warning(f"⚠️ {warning}")
-                                if len(all_warnings) > 5:
-                                    st.info(f"... and {len(all_warnings) - 5} more warnings")
-                        else:
-                            st.error("❌ Validation failed")
-                            for error in all_errors[:5]:  # Show first 5 errors
-                                st.error(f"❌ {error}")
-                            if len(all_errors) > 5:
-                                st.info(f"... and {len(all_errors) - 5} more errors")
-                    else:
-                        # Single policy validation
-                        result = validator.validate_policy_json(policy_data)
-                        
-                        st.session_state.validation_results = {
-                            "valid": result.is_valid,
-                            "errors": result.errors,
-                            "warnings": result.warnings
-                        }
-                        
-                        if result.is_valid:
-                            st.success("✅ JSON is valid and ready for translation")
-                            if result.warnings:
+                    # Display validation result
+                    if result.is_valid:
+                        st.success(f"✅ Validation passed! Found {len(result.policies)} valid policies")
+                        if result.warnings:
+                            with st.expander(f"⚠️ View {len(result.warnings)} warnings"):
                                 for warning in result.warnings:
                                     st.warning(f"⚠️ {warning}")
-                        else:
-                            st.error("❌ Validation failed")
-                            for error in result.errors:
-                                st.error(f"❌ {error}")
+                    else:
+                        st.error("❌ Validation failed")
+                        for error in result.errors:
+                            st.error(f"❌ {error}")
                 
                 except json.JSONDecodeError as e:
                     st.error(f"❌ Invalid JSON format: {str(e)}")
@@ -354,6 +296,9 @@ with right_col:
                         f"✅ Translation complete! Generated {len(sql_statements)} SQL statements "
                         f"from {len(policies)} policies."
                     )
+                    
+                    # Force rerun to update UI immediately
+                    st.rerun()
                 
                 except json.JSONDecodeError as e:
                     st.error(f"❌ Invalid JSON format: {str(e)}")
@@ -384,23 +329,38 @@ with right_col:
             st.metric("📝 SQL Statements", stats["statements"])
         st.divider()
     
-    # ==================== DISPLAY SQL OUTPUT ====================
+    # ==================== DISPLAY SQL OUTPUT IN SINGLE BLOCK ====================
     if st.session_state.translated_sql:
         st.markdown("**Generated SQL Statements:**")
         
-        # Create numbered SQL output with proper formatting
-        numbered_sql = []
+        # Combine all SQL statements with proper spacing and separators
+        # Add clear separators between statements with comment blocks
+        formatted_statements = []
         for i, stmt in enumerate(st.session_state.translated_sql, 1):
-            numbered_sql.append(f"-- Statement {i}\n{stmt}")
+            # Ensure proper indentation and formatting for each statement
+            stmt_clean = stmt.strip()
+            separator = f"-- ============================================================\n-- Statement {i} of {len(st.session_state.translated_sql)}\n-- ============================================================"
+            formatted_statements.append(f"{separator}\n{stmt_clean}")
         
-        full_sql = "\n\n".join(numbered_sql)
+        # Join with double newlines for clear separation
+        sql_content = "\n\n".join(formatted_statements)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"uc_policies_{timestamp}.sql"
         
-        # Use st.code for better SQL formatting with syntax highlighting
-        st.code(
-            full_sql,
-            language="sql",
-            line_numbers=False
+        # Download button above code block
+        st.download_button(
+            label="📥 Download SQL",
+            data=sql_content,
+            file_name=filename,
+            mime="text/plain",
+            key="download_sql",
+            use_container_width=False,
+            help="Download all SQL statements"
         )
+        
+        # Display SQL in code block with built-in copy button (appears in top-right corner)
+        # wrap_lines ensures long lines wrap instead of requiring horizontal scroll
+        st.code(sql_content, language="sql", line_numbers=True, wrap_lines=True)
     else:
         st.info("👆 Click **Translate** to generate SQL statements")
 

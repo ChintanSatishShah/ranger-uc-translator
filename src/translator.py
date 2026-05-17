@@ -2,7 +2,7 @@
 Ranger Policy Translator
 Translates Apache Ranger policies to Unity Catalog SQL statements.
 """
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Union
 from dataclasses import dataclass
 from .parser import RangerPolicy, PolicyType
 from .config import TranslationConfig, MASKING_FUNCTIONS
@@ -216,9 +216,9 @@ RETURN {item.filter_expr}"""
                 principal_list.append(f"`{uc_group}`")
                 principals.append(f"group:{uc_group}")
             
-            if principal_list:
-                apply_filter = f"ALTER TABLE {resource} SET ROW FILTER {func_name} ON ({', '.join(principal_list)})"
-                sql_statements.append(utils.format_sql_statement(apply_filter))
+            # Apply row filter to table for specified users/groups
+            apply_filter = f"ALTER TABLE {resource} SET ROW FILTER {func_name} ON ({', '.join(principal_list)})"
+            sql_statements.append(utils.format_sql_statement(apply_filter))
         
         if not sql_statements:
             return None
@@ -227,25 +227,14 @@ RETURN {item.filter_expr}"""
             policy_id=str(policy.id),
             policy_type="ROW_FILTER",
             sql_statements=sql_statements,
-            description=policy.description or f"Row filter policy for {resource}",
+            description=policy.description or f"Row filter for {resource}",
             resource=resource,
             principals=principals
         )
     
     def _translate_column_mask(self, policy: RangerPolicy) -> Optional[UCPolicy]:
-        """Translate Ranger column masking to UC column mask functions with conditional logic."""
+        """Translate Ranger column masking policy to UC masking functions."""
         if not policy.masking_items:
-            return None
-        
-        # Check if this is a tag-based masking policy (handled by subclass)
-        tag_resource = policy.resources.get('tag')
-        if tag_resource and tag_resource.values:
-            # Base class doesn't handle tag-based masking - let subclass override
-            tag_names = ', '.join(tag_resource.values)
-            self.errors.append(
-                f"Tag-based column masking policy {policy.id} requires tag metadata. "
-                f"Use EnhancedPolicyTranslator with tag metadata for tags: {tag_names}"
-            )
             return None
         
         sql_statements = []
@@ -254,16 +243,9 @@ RETURN {item.filter_expr}"""
         # Build UC resource path
         resource = self._build_resource_path(policy.resources)
         if not resource:
-            self.errors.append(f"Could not determine resource for masking policy {policy.id}")
+            self.errors.append(f"Could not determine resource for policy {policy.id}")
             return None
         
-        # Extract column from resources
-        column_resource = policy.resources.get('column')
-        if not column_resource or not column_resource.values:
-            self.errors.append(f"Column masking requires column resource for policy {policy.id}")
-            return None
-        
-        columns = column_resource.values
         parts = resource.split('.')
         if len(parts) != 3:
             self.errors.append(f"Invalid table path for column masking: {resource}")
@@ -271,39 +253,40 @@ RETURN {item.filter_expr}"""
         
         catalog, schema, table = parts
         
-        # Generate masking function for each column with conditional logic
+        # Get column(s) from resources
+        column_resource = policy.resources.get('column')
+        if not column_resource or not column_resource.values:
+            self.errors.append(f"No columns specified for masking in policy {policy.id}")
+            return None
+        
+        columns = column_resource.values
+        
+        # For each column, create masking function based on policy items
         is_first_stmt = True
         
         for column in columns:
-            # Separate MASK_NONE items from other mask types
-            mask_none_items = []
-            mask_apply_items = []
-            
-            for item in policy.masking_items:
-                if item.mask_type == "MASK_NONE":
-                    mask_none_items.append(item)
-                else:
-                    mask_apply_items.append(item)
-            
-            # Collect all MASK_NONE users and groups (they see original value)
+            # Collect all masking rules for this column
             mask_none_users = []
             mask_none_groups = []
-            for item in mask_none_items:
-                mask_none_users.extend(item.users)
-                mask_none_groups.extend(item.groups)
+            default_mask_type = None
             
-            # Get masking rules for users who should see masked data
-            default_mask_type = "MASK_REDACT"  # Default if no specific mask defined
-            
-            if mask_apply_items:
-                # Use the first mask_apply_item's mask type as default
-                default_mask_type = mask_apply_items[0].mask_type
+            for item in policy.masking_items:
+                mask_type = item.mask_type
                 
-                # Collect users/groups from mask_apply_items
-                for item in mask_apply_items:
+                # Ranger MASK_NONE means no masking for these users/groups
+                if mask_type == 'MASK_NONE':
+                    mask_none_users.extend(item.users)
+                    mask_none_groups.extend(item.groups)
+                else:
+                    # Use the first non-NONE mask type as default
+                    if not default_mask_type:
+                        default_mask_type = mask_type
+                    
+                    # Collect principals who can see masked data
                     for user in item.users:
                         uc_user = self.config.get_principal_mapping(user)
                         principals.append(f"user:{uc_user}")
+                    
                     for group in item.groups:
                         uc_group = self.config.get_principal_mapping(group)
                         principals.append(f"group:{uc_group}")
@@ -312,7 +295,7 @@ RETURN {item.filter_expr}"""
             func_name = utils.generate_masking_function_name(table, column, default_mask_type)
             
             # Get masking function from config
-            mask_func = MASKING_FUNCTIONS.get(default_mask_type, "REDACT")
+            mask_func = MASKING_FUNCTIONS.get(default_mask_type, MASKING_FUNCTIONS["MASK_REDACT"])
             
             # Build CASE statement for conditional masking
             conditions = []
@@ -331,7 +314,9 @@ RETURN {item.filter_expr}"""
                 conditions.append(f"WHEN is_account_group_member('{uc_group}') THEN {column}")
             
             # Default: apply masking
-            conditions.append(f"ELSE {mask_func}({column})")
+            # Replace {column} placeholder in mask expression
+            masked_expr = mask_func.replace("{column}", column)
+            conditions.append(f"ELSE {masked_expr}")
             
             case_statement = "\n    ".join(conditions)
             
@@ -364,100 +349,159 @@ END"""
             policy_id=str(policy.id),
             policy_type="COLUMN_MASK",
             sql_statements=sql_statements,
-            description=policy.description or f"Column masking policy for {resource}",
+            description=policy.description or f"Column masking for {resource}",
             resource=resource,
             principals=principals
         )
 
 
 class EnhancedPolicyTranslator(PolicyTranslator):
-    """Enhanced translator with tag-based policy support."""
+    """Enhanced policy translator with support for tag-based policies."""
     
     def __init__(self, config: TranslationConfig):
         super().__init__(config)
         self.tag_definitions = {}
         self.resource_tags = {}
     
-    def set_tag_metadata(self, tag_definitions: Dict, resource_tags: Dict):
-        """Set tag metadata for tag-based policies."""
-        self.tag_definitions = tag_definitions
-        self.resource_tags = resource_tags
-    
-    def translate(self, policy: RangerPolicy) -> Optional[UCPolicy]:
-        """Translate Ranger policy with tag support."""
-        if policy.policy_type == PolicyType.TAG:
-            return self._translate_tag_policy(policy)
+    def set_tag_metadata(self, tag_definitions: Union[Dict, List], resource_tags: Union[Dict, List]):
+        """Set tag metadata for resolving tag-based policies.
+        
+        Args:
+            tag_definitions: Dictionary or list of tag definitions from Ranger export
+            resource_tags: Dictionary or list of resource tags from Ranger export
+        """
+        # Handle tag_definitions as either dict or list
+        if isinstance(tag_definitions, dict):
+            # Already a dict: {tag_name: {name, attributeDefs}}
+            self.tag_definitions = tag_definitions
+        elif isinstance(tag_definitions, list):
+            # Convert list to dict
+            self.tag_definitions = {tag['name']: tag for tag in tag_definitions}
         else:
-            return super().translate(policy)
+            self.tag_definitions = {}
+        
+        # Handle resource_tags as either dict or list
+        if isinstance(resource_tags, dict):
+            # Already a dict: {resource_path: [tag1, tag2]}
+            self.resource_tags = resource_tags
+        elif isinstance(resource_tags, list):
+            # Convert list to dict (assuming list of objects with resource and tags fields)
+            self.resource_tags = {}
+            for item in resource_tags:
+                resource = item.get('resource', {})
+                tags = item.get('tags', [])
+                # Build resource path from components
+                database = resource.get('database', '')
+                table = resource.get('table', '')
+                columns = resource.get('column', [])
+                if table:
+                    for column in columns if columns else ['*']:
+                        path = f"{database}.{table}.{column}" if database else f"{table}.{column}"
+                        self.resource_tags[path] = tags
+        else:
+            self.resource_tags = {}
     
-    def _translate_column_mask(self, policy: RangerPolicy) -> Optional[UCPolicy]:
-        """Override to handle tag-based column masking."""
-        if not policy.masking_items:
-            return None
+    def _get_tagged_columns(self, tag_name: str) -> List[Dict]:
+        """Find all columns tagged with the specified tag.
         
-        # Check if this is a tag-based masking policy
-        tag_resource = policy.resources.get('tag')
-        if tag_resource and tag_resource.values:
-            # Handle tag-based column masking
-            return self._translate_tag_based_column_mask(policy)
-        
-        # Fall back to standard column masking
-        return super()._translate_column_mask(policy)
-    
-    def _translate_tag_based_column_mask(self, policy: RangerPolicy) -> Optional[UCPolicy]:
-        """Translate tag-based column masking to UC column mask functions."""
-        tag_resource = policy.resources.get('tag')
-        if not tag_resource or not tag_resource.values:
-            return None
-        
-        policy_tags = tag_resource.values
-        
-        # Find all columns that have any of these tags
+        Returns:
+            List of dicts with keys: database, table, column
+        """
         tagged_columns = []
+        
+        # Iterate through resource_tags dict
         for resource_path, tags in self.resource_tags.items():
-            if any(tag in tags for tag in policy_tags):
-                # Parse resource path as database.table.column
+            # Check if this resource has the specified tag
+            if tag_name in tags:
+                # Parse resource path: expected format is "database.table.column"
                 parts = resource_path.split('.')
+                
                 if len(parts) == 3:
                     database, table, column = parts
+                elif len(parts) == 2:
+                    # No database specified, use default schema
+                    table, column = parts
+                    database = self.config.schema
+                else:
+                    # Invalid format, skip
+                    continue
+                
+                # Skip wildcard columns
+                if column != '*':
                     tagged_columns.append({
                         'database': database,
                         'table': table,
-                        'column': column,
-                        'tags': tags
+                        'column': column
                     })
         
-        if not tagged_columns:
-            self.errors.append(
-                f"No columns found with tags: {', '.join(policy_tags)} for policy {policy.id}"
-            )
+        return tagged_columns
+    
+    def translate(self, policy: RangerPolicy) -> Optional[UCPolicy]:
+        """Translate a single Ranger policy to UC format.
+        
+        Overrides parent to handle tag-based column masking policies.
+        """
+        # Check if this is a tag-based column masking policy
+        if policy.policy_type == PolicyType.COLUMN_MASK:
+            tag_resource = policy.resources.get('tag')
+            if tag_resource and tag_resource.values:
+                # This is a tag-based policy
+                return self._translate_tag_based_column_mask(policy)
+        
+        # Otherwise use parent implementation
+        return super().translate(policy)
+    
+    def _translate_tag_based_column_mask(self, policy: RangerPolicy) -> Optional[UCPolicy]:
+        """Translate tag-based column masking policy to UC masking functions.
+        
+        Tag-based policies don't specify table/column explicitly but reference
+        data classified by tags (e.g., PII, SENSITIVE). This creates template
+        functions that need manual adjustment for specific tables.
+        """
+        if not policy.masking_items:
             return None
         
         sql_statements = []
         principals = []
-        catalog = self.config.catalog
         
-        # Get masking rules
+        # Get tag from resources
+        tag_resource = policy.resources.get('tag')
+        if not tag_resource or not tag_resource.values:
+            self.errors.append(f"No tag specified for masking in policy {policy.id}")
+            return None
+        
+        tag_name = tag_resource.values[0]
+        catalog = self.config.catalog
+        schema = self.config.schema
+        
+        # Collect masking rules
         mask_none_users = []
         mask_none_groups = []
-        default_mask_type = "MASK_HASH"  # Default for tag-based masking
+        default_mask_type = None
         
         for item in policy.masking_items:
-            if item.mask_type == "MASK_NONE":
+            mask_type = item.mask_type
+            
+            if mask_type == 'MASK_NONE':
                 mask_none_users.extend(item.users)
                 mask_none_groups.extend(item.groups)
             else:
-                default_mask_type = item.mask_type
-                # Collect principals
+                if not default_mask_type:
+                    default_mask_type = mask_type
+                
                 for user in item.users:
                     uc_user = self.config.get_principal_mapping(user)
                     principals.append(f"user:{uc_user}")
+                
                 for group in item.groups:
                     uc_group = self.config.get_principal_mapping(group)
                     principals.append(f"group:{uc_group}")
         
         # Get masking function from config
-        mask_func = MASKING_FUNCTIONS.get(default_mask_type, "SHA2")
+        mask_func = MASKING_FUNCTIONS.get(default_mask_type, MASKING_FUNCTIONS["MASK_HASH"])
+        
+        # Find columns with this tag
+        tagged_columns = self._get_tagged_columns(tag_name)
         
         # Generate masking SQL for each tagged column
         is_first_stmt = True
@@ -490,7 +534,9 @@ class EnhancedPolicyTranslator(PolicyTranslator):
                 conditions.append(f"WHEN is_account_group_member('{uc_group}') THEN {column}")
             
             # Default: apply masking
-            conditions.append(f"ELSE {mask_func}({column})")
+            # Replace {column} placeholder in mask expression
+            masked_expr = mask_func.replace("{column}", column)
+            conditions.append(f"ELSE {masked_expr}")
             
             case_statement = "\n    ".join(conditions)
             
@@ -506,7 +552,7 @@ END"""
                     create_func,
                     policy_name=policy.name,
                     policy_id=str(policy.id),
-                    policy_description=f"Tag-based masking for tags: {', '.join(policy_tags)}"
+                    policy_description=policy.description
                 ))
                 is_first_stmt = False
             else:
@@ -517,90 +563,18 @@ END"""
             sql_statements.append(utils.format_sql_statement(apply_mask))
         
         if not sql_statements:
-            return None
+            # Create placeholder message if no tagged columns found
+            placeholder = f"<table_with_{tag_name}>"
+            self.errors.append(
+                f"Tag-based policy for tag '{tag_name}'. No tagged resources found in metadata. "
+                f"Query your data catalog to find tables/columns with this tag."
+            )
         
         return UCPolicy(
             policy_id=str(policy.id),
-            policy_type="COLUMN_MASK",
+            policy_type="COLUMN_MASK_TAG",
             sql_statements=sql_statements,
-            description=f"Tag-based column masking for tags: {', '.join(policy_tags)}",
-            resource=f"TAGS:{','.join(policy_tags)}",
-            principals=principals
-        )
-    
-    def _translate_tag_policy(self, policy: RangerPolicy) -> Optional[UCPolicy]:
-        """Translate tag-based policy to UC tag and grant statements."""
-        if not policy.policy_items:
-            return None
-        
-        # Get tag name from resources
-        tag_resource = policy.resources.get('tag')
-        if not tag_resource or not tag_resource.values:
-            self.errors.append(f"Tag policy {policy.id} missing tag resource")
-            return None
-        
-        tag_name = tag_resource.values[0]
-        
-        # Get resources that have this tag
-        tagged_resources = []
-        for resource_path, tags in self.resource_tags.items():
-            if tag_name in tags:
-                tagged_resources.append(resource_path)
-        
-        if not tagged_resources:
-            self.errors.append(f"No resources found with tag {tag_name}")
-            return None
-        
-        sql_statements = []
-        principals = []
-        
-        # Create tag if it doesn't exist
-        catalog = self.config.catalog
-        create_tag = f"CREATE TAG IF NOT EXISTS {catalog}.{tag_name}"
-        sql_statements.append(utils.format_sql_statement(
-            create_tag,
-            policy_name=policy.name,
-            policy_id=str(policy.id),
-            policy_description=policy.description
-        ))
-        
-        # Apply tag to resources
-        for resource in tagged_resources:
-            alter_table = f"ALTER TABLE {resource} SET TAGS ('{tag_name}' = 'true')"
-            sql_statements.append(utils.format_sql_statement(alter_table))
-        
-        # Generate grants for tagged resources
-        for item in policy.policy_items:
-            privileges = [self.config.get_privilege_mapping(acc['type']) 
-                         for acc in item.accesses if acc.get('isAllowed', True)]
-            
-            if not privileges:
-                continue
-            
-            for resource in tagged_resources:
-                # Grant to users
-                for user in item.users:
-                    uc_user = self.config.get_principal_mapping(user)
-                    principals.append(f"user:{uc_user}")
-                    
-                    for privilege in privileges:
-                        grant_sql = f"GRANT {privilege} ON {resource} TO `{uc_user}`"
-                        sql_statements.append(utils.format_sql_statement(grant_sql))
-                
-                # Grant to groups
-                for group in item.groups:
-                    uc_group = self.config.get_principal_mapping(group)
-                    principals.append(f"group:{uc_group}")
-                    
-                    for privilege in privileges:
-                        grant_sql = f"GRANT {privilege} ON {resource} TO `{uc_group}`"
-                        sql_statements.append(utils.format_sql_statement(grant_sql))
-        
-        return UCPolicy(
-            policy_id=str(policy.id),
-            policy_type="TAG",
-            sql_statements=sql_statements,
-            description=policy.description or f"Tag-based policy for {tag_name}",
-            resource=f"TAG:{tag_name}",
+            description=policy.description or f"Tag-based column masking for {tag_name}",
+            resource=f"{catalog}.{schema}.<table_with_{tag_name}>",
             principals=principals
         )

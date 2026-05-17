@@ -64,13 +64,13 @@ This comprehensive solution automates the migration of Apache Ranger policies to
 
 | Module | Purpose | Lines | Features |
 |--------|---------|-------|----------|
-| `parser.py` | Parse Ranger JSON | 250 | 4 policy types, error handling |
-| `translator_enhanced.py` | Convert to UC format | 260 | Tag support, resource mapping |
-| `validator.py` | Input/SQL validation | 340 | Error detection, warnings |
-| `applier.py` | Execute policies | 200 | Dry-run mode, audit logging |
-| `config.py` | Configuration | 120 | Mappings, settings |
-| `utils.py` | Helper functions | 150 | SQL formatting, identifiers |
-| `app.py` | Streamlit UI | 751 | 6 pages, interactive dashboard |
+| `parser.py` | Parse Ranger JSON | 227 | 4 policy types, error handling |
+| `translator.py` | UC policy translation | 606 | All 4 policy types, tag support |
+| `validator.py` | Input/SQL validation | 307 | Error detection, warnings |
+| `applier.py` | Execute policies | 203 | Dry-run mode, audit logging |
+| `config.py` | Configuration | 100 | Mappings, settings |
+| `utils.py` | Helper functions | 219 | SQL formatting, identifiers |
+| `app.py` | Streamlit UI | 414 | Single-page, 3-tab interface |
 
 ---
 
@@ -80,7 +80,7 @@ This comprehensive solution automates the migration of Apache Ranger policies to
 ranger-uc-translator/
 ├── 📄 Configuration & Entry Point
 │   ├── app.yaml                  # Databricks App configuration
-│   ├── app.py                    # Streamlit UI (751 lines)
+│   ├── app.py                    # Streamlit UI (414 lines)
 │   ├── requirements.txt          # Python dependencies
 │   └── .gitignore
 │
@@ -91,8 +91,7 @@ ranger-uc-translator/
 ├── 📁 src/                       # Source Code Package
 │   ├── __init__.py              # Package initialization (v2.0.0)
 │   ├── parser.py                # Ranger JSON parser
-│   ├── translator.py            # Base translator
-│   ├── translator_enhanced.py   # Enhanced translator with tags
+│   ├── translator.py            # UC policy translator (EnhancedPolicyTranslator)
 │   ├── validator.py             # Input/SQL validation
 │   ├── applier.py               # Policy executor
 │   ├── config.py                # Configuration management
@@ -119,9 +118,6 @@ ranger-uc-translator/
 ├── 📁 tests/                     # Test Files
 │   ├── setup.sql                # Audit table setup
 │
-└── 📁 backups/                   # Archived Versions
-    ├── app_enhanced.py          # Previous version
-    └── app_original_backup.py   # Original version
 ```
 
 ---
@@ -130,14 +126,52 @@ ranger-uc-translator/
 
 ### Prerequisites
 
+**For Local Development (Translation Only):**
+- ✅ Python 3.10+
+- ✅ pip (for installing dependencies)
+
+**For Full Functionality (Translation + Execution):**
 - ✅ Databricks workspace with Unity Catalog enabled
 - ✅ Catalog for audit tables (default: `main.ranger_migration`)
 - ✅ User with admin privileges (CREATE TABLE, GRANT, CREATE TAG)
-- ✅ Python 3.10+ (for local development)
 
 ### Installation
 
-#### Option 1: Databricks App (Recommended)
+#### Option 1: Local Deployment (No Databricks Required) ⭐ **NEW**
+
+**Perfect for:** Translation-only workflow, generating SQL scripts for manual execution
+
+```bash
+# 1. Clone or download the repository
+git clone https://github.com/YOUR_USERNAME/ranger-uc-translator.git
+cd ranger-uc-translator
+
+# 2. Install dependencies
+pip install -r requirements.txt
+
+# 3. Run the app
+streamlit run app.py --server.port 8501
+```
+
+**Access at:** http://localhost:8501
+
+**✅ What Works:**
+- Upload and validate Ranger JSON policies
+- Translate all 4 policy types (access, masking, row filters, tags)
+- Review generated SQL with syntax highlighting
+- Export SQL scripts (.sql files)
+- Export CSV/JSON reports
+- Test all 12 sample policies
+
+**❌ What Requires Databricks:**
+- Direct SQL execution (UC policies)
+- Audit logging to Delta tables
+
+**Use Case:** Generate SQL scripts locally, then copy/paste into Databricks SQL Editor or notebook for manual execution.
+
+---
+
+#### Option 2: Databricks App (Full Functionality)
 
 The project is configured to run as a Databricks App with `app.yaml`:
 
@@ -151,22 +185,17 @@ command: ['streamlit', 'run', 'app.py', '--server.port', '8080', '--server.addre
 3. App will automatically install dependencies from requirements.txt
 4. Access via the generated app URL
 
-#### Option 2: Databricks Repos
+**Full functionality:** Translation + Direct SQL execution + Audit logging
+
+---
+
+#### Option 3: Databricks Repos
 
 ```bash
 # 1. In Databricks UI, go to Repos
 # 2. Click "Add Repo"
 # 3. Enter: https://github.com/YOUR_USERNAME/ranger-uc-translator.git
 # 4. Click "Create Repo"
-```
-
-#### Option 3: Clone Locally
-
-```bash
-git clone https://github.com/YOUR_USERNAME/ranger-uc-translator.git
-cd ranger-uc-translator
-pip install -r requirements.txt
-streamlit run app.py
 ```
 
 ### Setup Audit Tables
@@ -183,6 +212,190 @@ CREATE SCHEMA IF NOT EXISTS main.ranger_migration;
 
 ---
 
+
+## 🔄 Deployment Workflows
+
+Choose the workflow that best fits your environment and requirements:
+
+### Workflow 1: Local-Only (No Databricks) 💻
+
+**Best for:** Testing, SQL script generation, offline development
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                      LOCAL MACHINE                                   │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│  📥 Ranger JSON         🔄 Translation          📤 SQL Scripts       │
+│  ┌──────────┐          ┌──────────┐           ┌──────────┐         │
+│  │ Upload   │─────────→│ Validate │─────────→ │ Export   │         │
+│  │ Policy   │          │ Translate│           │ .sql file│         │
+│  └──────────┘          └──────────┘           └─────┬────┘         │
+│       ↓                      ↓                       │              │
+│  ✅ 12 samples         ✅ All 4 types           ✅ Ready to use     │
+│  ✅ Custom JSON        ✅ SQL preview           ✅ CSV/JSON export  │
+│                                                      │              │
+└──────────────────────────────────────────────────────┼──────────────┘
+                                                       ↓
+                          ┌──────────────────────────────────┐
+                          │  MANUAL STEP (Later)             │
+                          │  Copy/paste SQL to Databricks    │
+                          │  Execute in SQL Editor/Notebook  │
+                          └──────────────────────────────────┘
+```
+
+**✅ Advantages:**
+* No Databricks account needed during translation
+* Work offline or in restricted networks
+* Review SQL before execution
+* Share scripts with team for approval
+
+**⏱️ Time:** ~5 minutes per policy
+
+**Command:**
+```bash
+streamlit run app.py --server.port 8501
+# Access at: http://localhost:8501
+```
+
+---
+
+### Workflow 2: Databricks App (Full Integration) ☁️
+
+**Best for:** Production migration, automated workflows, audit logging
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                    DATABRICKS WORKSPACE                              │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│  📥 Ranger JSON    🔄 Translation    ▶️ Execution    📊 Audit       │
+│  ┌──────────┐     ┌──────────┐     ┌──────────┐   ┌──────────┐    │
+│  │ Upload   │────→│ Validate │────→│  Apply   │──→│  Log to  │    │
+│  │ Policy   │     │ Translate│     │  SQL     │   │  Delta   │    │
+│  └──────────┘     └──────────┘     └──────────┘   └──────────┘    │
+│       ↓                 ↓                ↓              ↓           │
+│  ✅ 12 samples    ✅ All 4 types   ✅ Auto-exec   ✅ Full audit    │
+│  ✅ Custom JSON   ✅ SQL preview   ✅ Dry-run     ✅ Rollback      │
+│                                    ✅ Unity Cat.  ✅ Compliance    │
+│                                                                      │
+│  🔒 Unity Catalog Integration                                       │
+│  ├── GRANT statements applied automatically                         │
+│  ├── Row filters created and assigned                               │
+│  ├── Column masks configured                                        │
+│  └── Tags defined and applied                                       │
+│                                                                      │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+**✅ Advantages:**
+* End-to-end automation
+* Immediate policy application
+* Complete audit trail in Delta tables
+* No manual copy/paste steps
+* Dry-run mode for safety
+
+**⏱️ Time:** ~3 minutes per policy (fully automated)
+
+**Setup:**
+```yaml
+# Deploy via Databricks Apps UI
+App Source: /Workspace/Repos/yourname/ranger-uc-translator
+# Access via generated app URL
+```
+
+---
+
+### Workflow 3: Hybrid (Best of Both) 🔄
+
+**Best for:** Compliance-heavy environments, multi-stage approvals
+
+```
+┌─────────────────────────┐         ┌──────────────────────────────┐
+│    LOCAL MACHINE        │         │   DATABRICKS WORKSPACE       │
+│  (Development/Review)   │         │   (Execution/Production)     │
+├─────────────────────────┤         ├──────────────────────────────┤
+│                         │         │                              │
+│  📥 Upload Ranger JSON  │         │  📥 Receive approved SQL     │
+│  🔄 Translate to UC SQL │         │  👁️ Final review            │
+│  👁️ Review & validate   │────────→│  ▶️ Execute in UC           │
+│  📝 Document changes    │  .sql   │  📊 Monitor & audit          │
+│  ✅ Get team approval   │  file   │  ✅ Verify permissions       │
+│                         │         │                              │
+└─────────────────────────┘         └──────────────────────────────┘
+       DAY 1-3: Review                   DAY 4: Execution
+```
+
+**Stages:**
+
+1. **Week 1: Translation (Local)**
+   * Data team translates all policies locally
+   * Security team reviews generated SQL
+   * Compliance approves changes
+   * SQL scripts stored in version control
+
+2. **Week 2: Testing (Dev Databricks)**
+   * Copy SQL to dev workspace
+   * Execute with dry_run=True
+   * Validate with test users
+   * Refine as needed
+
+3. **Week 3: Production (Prod Databricks)**
+   * Deploy approved scripts to production
+   * Execute in maintenance window
+   * Monitor for 48 hours
+   * Document actual vs. expected
+
+**✅ Advantages:**
+* Maximum control and visibility
+* Clear approval checkpoints
+* Version controlled SQL scripts
+* Gradual rollout
+* Easy rollback with saved SQL
+
+**⏱️ Time:** 2-3 weeks for enterprise migration
+
+---
+
+### Workflow Comparison
+
+| Feature | Local-Only | Databricks App | Hybrid |
+|---------|-----------|----------------|---------|
+| **Databricks Required** | ❌ No | ✅ Yes | ✅ Yes (later) |
+| **Translation** | ✅ Yes | ✅ Yes | ✅ Yes |
+| **SQL Execution** | ⚠️ Manual | ✅ Automatic | ⚠️ Manual |
+| **Audit Logging** | ❌ No | ✅ Yes | ✅ Yes (execution phase) |
+| **Approval Process** | ✅ Easy | ⚠️ After execution | ✅ Before execution |
+| **Version Control** | ✅ Easy | ⚠️ Extra steps | ✅ Built-in |
+| **Team Collaboration** | ✅ Easy (SQL files) | ⚠️ Requires access | ✅ Easy (SQL files) |
+| **Speed** | ⚡ Fast translation | ⚡⚡ Fastest overall | 🐢 Slower (controlled) |
+| **Risk Level** | 🟢 Low (review first) | 🟡 Medium (auto-exec) | 🟢 Low (staged) |
+| **Best For** | POC, testing | Production automation | Enterprise, compliance |
+
+---
+
+### Quick Decision Guide
+
+**Choose Local-Only if:**
+* You don't have Databricks access yet
+* You need to review SQL before execution
+* Your team requires external approval
+* You're in a restricted/air-gapped network
+
+**Choose Databricks App if:**
+* You have Databricks with Unity Catalog
+* You want end-to-end automation
+* You need audit trails in Delta tables
+* Speed is a priority
+
+**Choose Hybrid if:**
+* You have strict change control processes
+* Multiple approval stages are required
+* You want version-controlled migration
+* You're migrating 100+ policies
+
+---
+
 ## 💡 Usage Guide
 
 ### Basic Workflow
@@ -194,77 +407,69 @@ CREATE SCHEMA IF NOT EXISTS main.ranger_migration;
 
 ### Step-by-Step Example
 
-#### Step 1: Upload Policy (2 min)
+#### Step 1: Load Policy (1 min)
 
-```python
-# Via UI: Go to "📤 Upload & Validate" page
-# - Option A: Upload your Ranger JSON export
-# - Option B: Select sample policy (e.g., "access_simple.json")
+**Left Column - Choose input method:**
 
-# Result: Validation report shows parse status and errors
-```
+* **📁 Upload Tab:** Drag & drop your Ranger JSON file
+* **✏️ Paste Tab:** Paste JSON content and click "Load Pasted JSON"
+* **📋 Sample Tab:** Select from 12 pre-loaded samples (e.g., "access_simple.json")
+
+**Result:** JSON appears in the editor below, pretty-printed and ready to validate
+
+---
 
 #### Step 2: Validate (1 min)
 
-```python
-# Automatic validation includes:
-# ✓ JSON structure validation
-# ✓ Required fields checking
-# ✓ Data type validation
-# ✓ Policy items validation
+**Right Column - Click ✅ Validate button**
 
-# Example validation results:
-# ✅ Parse Status: Success
-# ✅ Valid Policies: 1/1
-# ✅ Errors: 0
-# ⚠️  Warnings: 0
+Validation checks:
+* ✓ JSON structure validation
+* ✓ Required fields checking
+* ✓ Data type validation
+* ✓ Policy items validation
+
+**Example results:**
 ```
+✅ Validation passed! Found 1 valid policies
+✅ Last validation: Passed
+```
+
+---
 
 #### Step 3: Translate (1 min)
 
-```python
-# Go to "🔄 Translate" page
-# Click "🚀 Start Translation"
+**Right Column - Click 🔄 Translate button**
 
-# Translation uses:
-# - EnhancedPolicyTranslator (supports all 4 policy types)
-# - Automatic tag metadata handling
-# - Comprehensive error collection
+The engine uses:
+* EnhancedPolicyTranslator (supports all 4 policy types)
+* Automatic tag metadata handling
+* Comprehensive error collection
 
-# Example results:
-# ✅ UC Policies Generated: 1
-# ✅ SQL Statements: 13
-# ✅ Translation Errors: 0
+**Result:**
+```
+✅ Translation complete! Generated 13 SQL statements from 1 policies.
+📋 Policies Translated: 1
+📝 SQL Statements: 13
 ```
 
-#### Step 4: Review (3 min)
+---
 
-```python
-# Go to "👁️ Review & Compare" page
-# Select policy from dropdown
+#### Step 4: Download SQL (30 sec)
 
-# Side-by-side view:
-# Left:  Original Ranger policy (JSON)
-# Right: Generated UC SQL (syntax highlighted)
+**Two download options appear:**
 
-# Features:
-# - Expandable SQL statements
-# - Copy button for each statement
-# - Automatic SQL validation
-```
+1. **📥 Download All SQL** - Single file with all statements
+2. **Individual Downloads** - Expand each statement, copy or download individually
 
-#### Step 5: Export (1 min)
+Each SQL statement shows:
+* Syntax-highlighted SQL code
+* Copy text area (Ctrl+A, Ctrl+C)
+* Individual download button
 
-```python
-# Go to "💾 Export Results" page
+---
 
-# Download options:
-# 1. SQL Script (.sql)    - Ready to execute
-# 2. CSV Report (.csv)    - For audit/analysis
-# 3. JSON Export (.json)  - For programmatic use
-```
-
-#### Step 6: Execute (Manual)
+#### Step 5: Execute (Manual)
 
 ```sql
 -- Review downloaded SQL script
@@ -281,42 +486,65 @@ GRANT MODIFY ON main.sales.orders TO `sales_manager@company.com`;
 
 ## 🎨 Streamlit UI Features
 
-### 6 Interactive Pages
+### Single-Page Interface with Two-Column Layout
 
-#### 🏠 Home
-- Welcome screen with feature overview
-- Quick start guide
-- Sample policy catalog
+The app uses a streamlined single-page design optimized for quick policy translation:
 
-#### 📤 Upload & Validate
-- **File Upload:** Drag & drop JSON files
-- **Sample Selector:** 12 pre-loaded policies
-- **Validation Report:** Parse status, errors, warnings
-- **JSON Preview:** View raw policy data
+#### **Left Column: JSON Input (40%)**
 
-#### 🔄 Translate
-- **Configuration:** Catalog, schema, dry-run mode
-- **Policy Summary:** Counts by type
-- **One-click Translation:** Start button
-- **Results Dashboard:** Success metrics, errors
+**Three Input Methods (Tabs):**
 
-#### 👁️ Review & Compare
-- **Policy Selector:** Browse translated policies
-- **Side-by-Side View:** Ranger JSON ↔ UC SQL
-- **SQL Validation:** Automatic syntax checking
-- **Copy Buttons:** Easy SQL extraction
+1. **📁 Upload Tab**
+   * Drag & drop JSON files
+   * Supports .json format
+   * Auto-loads on upload
+   * Shows filename confirmation
 
-#### 💾 Export Results
-- **SQL Script:** Executable migration script
-- **CSV Report:** Detailed policy information
-- **JSON Export:** Structured data format
-- **Timestamp:** Auto-named downloads
+2. **✏️ Paste Tab**
+   * Text area for direct JSON input
+   * "Load Pasted JSON" button
+   * Ideal for quick testing
+   * Copy/paste from clipboard
 
-#### 📊 Statistics
-- **Overall Metrics:** Policies, SQL, principals
-- **Type Breakdown:** Distribution by policy type
-- **Interactive Charts:** Plotly visualizations
-- **Detailed Tables:** Sortable, filterable data
+3. **📋 Sample Tab**
+   * Dropdown selector with 12 pre-loaded samples
+   * Auto-loads on selection
+   * Organized by policy type and complexity
+   * No button needed - instant load
+
+**JSON Display:**
+* Pretty-printed JSON viewer
+* Editable text area (400px height)
+* Auto-clears outputs when JSON changes
+* Syntax validation on input
+
+---
+
+#### **Right Column: SQL Output & Actions (60%)**
+
+**Action Buttons (2-button row):**
+
+1. **✅ Validate** - Validates JSON structure and policy format
+2. **🔄 Translate** - Translates policies to Unity Catalog SQL (primary action)
+
+**Output Displays:**
+
+* **Validation Results:** JSON structure, policy counts, errors/warnings
+* **Translation Results:** Success metrics, SQL statement count, any errors
+* **Download All SQL:** Button to download all statements as single .sql file
+* **Individual SQL Statements:** Expandable sections with code display, copy area, and individual download buttons
+* **Statistics:** Policy counts by type, SQL statement breakdown
+
+---
+
+### Key UI Features
+
+* **Real-time Clearing:** Outputs auto-clear when new JSON is loaded
+* **Progress Indicators:** Spinners show validation/translation progress
+* **Error Handling:** Inline error messages with specific details
+* **Download Timestamping:** Files auto-named with `uc_policies_YYYYMMDD_HHMMSS.sql`
+* **Responsive Layout:** Wide layout optimized for side-by-side viewing
+* **Session State:** Maintains JSON, SQL, and results across interactions
 
 ---
 
@@ -610,6 +838,7 @@ config = TranslationConfig(
 | **Documentation** | User guide + API docs | ✅ Complete |
 | **Audit** | Logging and tracking | ✅ Complete |
 | **Export** | Multiple formats (SQL/CSV/JSON) | ✅ Complete |
+| **Local Deployment** | Run without Databricks | ✅ Complete |
 | **Recommended** | Manual SQL review | ⚠️ Required |
 | **Recommended** | Dev/staging testing | ⚠️ Required |
 | **Recommended** | Incremental rollout | ⚠️ Required |
@@ -633,7 +862,7 @@ from src.config import MASKING_FUNCTIONS
 MASKING_FUNCTIONS['CUSTOM_MASK'] = "CASE WHEN ... THEN ... END"
 
 # Add new translator logic
-from src.translator_enhanced import EnhancedPolicyTranslator
+from src.translator import EnhancedPolicyTranslator
 
 class CustomTranslator(EnhancedPolicyTranslator):
     def _translate_custom_policy(self, policy):
@@ -647,7 +876,7 @@ class CustomTranslator(EnhancedPolicyTranslator):
 # Test all sample policies
 python -c "
 from src.parser import RangerPolicyParser
-from src.translator_enhanced import EnhancedPolicyTranslator
+from src.translator import EnhancedPolicyTranslator
 from src.config import TranslationConfig
 
 # Test workflow
@@ -720,7 +949,7 @@ print(f'Generated {len(policies)} UC policies')
 ### Common Issues
 
 **Q: Translation errors for tag policies?**  
-A: Ensure you're using `translator_enhanced.py` and tag metadata is loaded.
+A: Ensure you're using `translator.py` and tag metadata is loaded.
 
 **Q: Validation warnings?**  
 A: Warnings are informational. Review them but translation can proceed.
@@ -730,6 +959,9 @@ A: Check that catalog/schema exist and you have necessary privileges.
 
 **Q: App shows "Not Available"?**  
 A: Wait 3-5 minutes for dependencies to install, then refresh. Use the restart_app notebook if needed.
+
+**Q: Can I run this without Databricks?**  
+A: Yes! Run locally for translation and SQL generation. You'll need Databricks only for SQL execution.
 
 ---
 

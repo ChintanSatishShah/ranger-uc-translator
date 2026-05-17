@@ -4,7 +4,7 @@ Provides input validation, SQL validation, and error reporting.
 """
 
 from typing import Dict, List, Any, Optional, Tuple
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 
 @dataclass
@@ -13,6 +13,7 @@ class ValidationResult:
     is_valid: bool
     errors: List[str]
     warnings: List[str]
+    policies: List[str] = field(default_factory=list)  # Track which policies were validated
     
     def add_error(self, error: str):
         """Add validation error."""
@@ -34,6 +35,45 @@ class RangerPolicyValidator:
     
     def __init__(self, level: ValidationLevel = ValidationLevel.NORMAL):
         self.level = level
+    
+    def validate_ranger_export(self, export_data: Dict[str, Any]) -> ValidationResult:
+        """Validate a Ranger export JSON structure containing multiple policies."""
+        result = ValidationResult(is_valid=True, errors=[], warnings=[], policies=[])
+        
+        # Check if this is an export format
+        if 'policies' not in export_data:
+            result.add_error("Export JSON missing 'policies' field. Expected format: {\"policies\": [...]}")
+            return result
+        
+        policies = export_data['policies']
+        
+        if not isinstance(policies, list):
+            result.add_error("'policies' field must be a list")
+            return result
+        
+        if len(policies) == 0:
+            result.add_warning("Export contains no policies")
+            return result
+        
+        # Validate each policy
+        for idx, policy in enumerate(policies):
+            policy_name = policy.get('name', f'Policy_{idx}')
+            result.policies.append(policy_name)
+            
+            policy_result = self.validate_policy_json(policy)
+            
+            # Prefix errors and warnings with policy name
+            for error in policy_result.errors:
+                result.add_error(f"[{policy_name}] {error}")
+            
+            for warning in policy_result.warnings:
+                result.add_warning(f"[{policy_name}] {warning}")
+        
+        # Overall validation status
+        if result.errors:
+            result.is_valid = False
+        
+        return result
     
     def validate_policy_json(self, policy_data: Dict[str, Any]) -> ValidationResult:
         """Validate a single Ranger policy JSON structure."""
