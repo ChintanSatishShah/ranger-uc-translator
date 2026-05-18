@@ -96,7 +96,11 @@ class TranslationConfig:
         """Get UC privilege from Ranger permission."""
         if self.privilege_mapping and ranger_privilege in self.privilege_mapping:
             return self.privilege_mapping[ranger_privilege]
-        return PRIVILEGE_MAPPING.get(ranger_privilege.lower(), ranger_privilege.upper())
+        # Strip service prefix (e.g. "hive:select" -> "select")
+        normalized = ranger_privilege.lower()
+        if ':' in normalized:
+            normalized = normalized.split(':', 1)[1]
+        return PRIVILEGE_MAPPING.get(normalized, normalized.upper())
 
 # Default configuration instance
 default_config = TranslationConfig()

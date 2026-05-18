@@ -70,28 +70,39 @@ class PolicyTranslator:
             )
             return f"{catalog}.{schema}.{placeholder}"
         
-        # Standard table-based policy
-        table_resource = resources.get('table')
-        
-        # Table is mandatory for non-tag policies
-        if not table_resource or not table_resource.values:
-            return None
-        
-        table = table_resource.values[0]
-        
-        # Database is optional
-        db_resource = resources.get('database')
         catalog = self.config.catalog
-        
-        if db_resource and db_resource.values:
-            # Database provided: use it as UC schema
-            database = db_resource.values[0]
-            schema = database  # Ranger database maps to UC schema
-            return f"{catalog}.{schema}.{table}"
-        else:
-            # No database: use configured schema as fallback
-            schema = self.config.schema
-            return f"{catalog}.{schema}.{table}"
+        db_resource = resources.get('database')
+        table_resource = resources.get('table')
+        udf_resource = resources.get('udf')
+        url_resource = resources.get('url')
+
+        db_val = db_resource.values[0] if (db_resource and db_resource.values) else None
+        table_val = table_resource.values[0] if (table_resource and table_resource.values) else None
+
+        # URL/S3 policy: no UC equivalent
+        if url_resource and not table_resource:
+            return None
+
+        # UDF-only policy: maps to UC FUNCTION grant
+        if udf_resource and udf_resource.values and not table_resource:
+            schema = db_val or self.config.schema
+            udf = udf_resource.values[0]
+            return f"FUNCTION {catalog}.{schema}.{udf}"
+
+        # Catalog-wide: database=* with no specific table
+        if db_val == '*' and (not table_val or table_val == '*'):
+            return f"CATALOG {catalog}"
+
+        # Schema-level: database specified but no table (or table=*)
+        if db_val and (not table_val or table_val == '*'):
+            return f"SCHEMA {catalog}.{db_val}"
+
+        # Table-level
+        if table_val:
+            schema = db_val or self.config.schema
+            return f"{catalog}.{schema}.{table_val}"
+
+        return None
     
     def _translate_access(self, policy: RangerPolicy) -> Optional[UCPolicy]:
         """Translate Ranger access policy to UC GRANT statements."""
@@ -104,9 +115,13 @@ class PolicyTranslator:
         # Build UC resource path
         resource = self._build_resource_path(policy.resources)
         if not resource:
-            self.errors.append(f"Could not determine resource for policy {policy.id}")
+            res_types = list(policy.resources.keys())
+            self.errors.append(
+                f"Skipped policy '{policy.name}' (id={policy.id}): "
+                f"resource types {res_types} have no Unity Catalog equivalent (e.g. URL/S3 paths)."
+            )
             return None
-        
+
         # Generate GRANT statements
         is_first_stmt = True
         for item in policy.policy_items:
@@ -140,9 +155,18 @@ class PolicyTranslator:
             for group in item.groups:
                 uc_group = self.config.get_principal_mapping(group)
                 principals.append(f"group:{uc_group}")
-                
+
                 for privilege in privileges:
                     grant_sql = f"GRANT {privilege} ON {resource} TO `{uc_group}`"
+                    sql_statements.append(utils.format_sql_statement(grant_sql))
+
+            # Grant to roles (mapped to UC groups/service principals)
+            for role in (item.roles or []):
+                uc_role = self.config.get_principal_mapping(role)
+                principals.append(f"role:{uc_role}")
+
+                for privilege in privileges:
+                    grant_sql = f"GRANT {privilege} ON {resource} TO `{uc_role}`"
                     sql_statements.append(utils.format_sql_statement(grant_sql))
         
         if not sql_statements:
@@ -563,8 +587,6 @@ END"""
             sql_statements.append(utils.format_sql_statement(apply_mask))
         
         if not sql_statements:
-            # Create placeholder message if no tagged columns found
-            placeholder = f"<table_with_{tag_name}>"
             self.errors.append(
                 f"Tag-based policy for tag '{tag_name}'. No tagged resources found in metadata. "
                 f"Query your data catalog to find tables/columns with this tag."
