@@ -17,7 +17,7 @@ st.set_page_config(
     page_title="Ranger → UC Translator",
     page_icon="🔐",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="expanded",   # always start expanded
 )
 
 # ── CSS ────────────────────────────────────────────────────────────────────────
@@ -38,21 +38,27 @@ st.markdown("""
 .stApp { background: var(--bg) !important; color: var(--txt); font-family: var(--sans); }
 .block-container { padding: 0 1rem 1rem !important; max-width: 100% !important; }
 
-/* ── Header / Toolbar ── */
-header[data-testid="stHeader"] {
-  background: var(--sur) !important;
-  border-bottom: 1px solid var(--bdr) !important;
-}
-[data-testid="stToolbar"] { display: none; }
+/* ── Hide Streamlit's native header bar; we use our own ── */
+header[data-testid="stHeader"]  { display: none !important; }
+[data-testid="stToolbar"]       { display: none !important; }
+#MainMenu                       { display: none !important; }
 
-/* ── Sidebar ── */
+/* ── Sidebar — always visible, never collapsible ── */
 section[data-testid="stSidebar"] {
   background: var(--sur) !important;
   border-right: 1px solid var(--bdr) !important;
   min-width: 240px !important; max-width: 260px !important;
+  transform: translateX(0) !important;
+  visibility: visible !important;
+  display: flex !important;
 }
 section[data-testid="stSidebar"] > div:first-child { padding: 0 !important; }
 [data-testid="stSidebarContent"] { padding: 0 !important; }
+
+/* Hide all collapse/expand toggle buttons */
+[data-testid="stSidebarCollapseButton"] { display: none !important; }
+[data-testid="collapsedControl"]        { display: none !important; }
+[data-testid="stSidebarNavCollapseIcon"]{ display: none !important; }
 
 /* ── Main tabs — push them to look like a header row ── */
 .stTabs { margin-top: 0 !important; }
@@ -109,17 +115,44 @@ section[data-testid="stSidebar"] > div:first-child { padding: 0 !important; }
 [role="option"] { color: var(--txt) !important; }
 [role="option"]:hover { background: var(--bdr) !important; }
 
-/* ── File uploader — make it look like the drag zone ── */
+/* ── File uploader — styled like index.html drag zone ── */
 [data-testid="stFileUploaderDropzone"] {
   background: var(--sur2) !important;
   border: 1.5px dashed var(--bdr) !important;
   border-radius: 8px !important;
-  padding: 10px !important;
+  padding: 14px 10px !important;
+  text-align: center !important;
+  cursor: pointer !important;
+  transition: border-color .2s, background .2s !important;
 }
-[data-testid="stFileUploaderDropzone"]:hover { border-color: var(--acc) !important; background: rgba(232,74,32,.05) !important; }
-[data-testid="stFileUploaderDropzone"] p { color: var(--mut) !important; font-size: 11px !important; }
-[data-testid="stFileUploaderDropzone"] svg { opacity: .5; }
-[data-testid="stFileUploaderDropzoneInput"] { cursor: pointer; }
+[data-testid="stFileUploaderDropzone"]:hover {
+  border-color: var(--acc) !important;
+  background: rgba(232,74,32,.06) !important;
+}
+[data-testid="stFileUploaderDropzone"] p {
+  color: var(--mut) !important;
+  font-size: 11px !important;
+  line-height: 1.5 !important;
+}
+/* "Browse files" button inside uploader */
+[data-testid="stFileUploaderDropzone"] button {
+  background: transparent !important;
+  border: 1px solid var(--bdr) !important;
+  color: var(--acc) !important;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  border-radius: 5px !important;
+  padding: 4px 12px !important;
+  cursor: pointer !important;
+}
+[data-testid="stFileUploaderDropzone"] button:hover {
+  border-color: var(--acc) !important;
+  background: rgba(232,74,32,.08) !important;
+}
+[data-testid="stFileUploaderDropzone"] small {
+  color: var(--mut) !important;
+  font-size: 10px !important;
+}
 
 /* ── Metrics ── */
 [data-testid="metric-container"] {
@@ -392,8 +425,16 @@ def format_sql(stmts):
 # ── App header ─────────────────────────────────────────────────────────────────
 st.markdown("""
 <div class="app-header">
-  <div class="logo">Ranger <span>→ Unity Catalog</span></div>
-  <span class="hbadge">Databricks Practice</span>
+  <div>
+    <div class="logo">Ranger <span>→ Unity Catalog</span>
+      <span class="hbadge" style="margin-left:8px;vertical-align:middle">Databricks Practice</span>
+    </div>
+    <div style="font-size:11px;color:var(--mut);margin-top:3px;font-family:var(--sans)">
+      Translate Apache Ranger security policies → Databricks Unity Catalog SQL &nbsp;·&nbsp;
+      GRANT · EXTERNAL LOCATION · Column Mask · Row Filter
+    </div>
+  </div>
+  <div style="margin-left:auto;font-size:10px;color:var(--mut);font-family:var(--mono);white-space:nowrap">v2.2</div>
 </div>
 """, unsafe_allow_html=True)
 
@@ -401,8 +442,9 @@ st.markdown("""
 with st.sidebar:
     st.markdown('<div class="slbl">Upload policy</div>', unsafe_allow_html=True)
     uploaded_file = st.file_uploader(
-        "Click or drag JSON file", type=["json"],
-        label_visibility="collapsed", key="file_uploader"
+        "Browse or drag .json file", type=["json"],
+        label_visibility="collapsed", key="file_uploader",
+        help="Click to browse or drag and drop a Ranger policy JSON file",
     )
 
     cur_file_id = uploaded_file.name if uploaded_file else None
@@ -413,6 +455,7 @@ with st.sidebar:
             try:
                 content = uploaded_file.read().decode("utf-8")
                 st.session_state.current_json = content
+                st.session_state.json_editor = content   # sync text area widget
                 st.session_state.source_name = uploaded_file.name
                 # Add to loaded files list
                 names = [f["name"] for f in st.session_state.loaded_files]
@@ -433,6 +476,7 @@ with st.sidebar:
                 content = (samples_dir / selected_sample).read_text()
                 clear_outputs()
                 st.session_state.current_json = content
+                st.session_state.json_editor = content   # sync text area widget
                 st.session_state.source_name = selected_sample
                 names = [f["name"] for f in st.session_state.loaded_files]
                 if selected_sample not in names:
@@ -474,6 +518,7 @@ with st.sidebar:
                 json.loads(pasted)  # validate
                 clear_outputs()
                 st.session_state.current_json = pasted
+                st.session_state.json_editor = pasted    # sync text area widget
                 st.session_state.source_name = "pasted_input"
                 st.session_state.load_status = ("success", "JSON loaded from paste")
                 st.rerun()
@@ -663,14 +708,23 @@ with tab_conv:
             sql_content = format_sql(st.session_state.translated_sql)
             st.code(sql_content, language="sql", line_numbers=True)
         else:
-            dot_state = "dot-warn" if st.session_state.current_json.strip() else "dot-err"
-            ready_msg = "Click <b>Translate</b> to generate SQL" if st.session_state.current_json.strip() else "Load a policy from the sidebar first"
-            st.markdown(
-                f'<div class="bar" style="border-radius:6px;border:1px solid var(--bdr);margin-top:4px">'
-                f'<div class="dot {dot_state}"></div>'
-                f'<span style="color:var(--mut)">{ready_msg}</span></div>',
-                unsafe_allow_html=True,
-            )
+            if st.session_state.current_json.strip():
+                hint = "Policy loaded — click <b style='color:var(--acc)'>⚡ Translate</b> to generate SQL."
+            else:
+                hint = "Select a sample or upload a file, then click <b style='color:var(--acc)'>⚡ Translate</b>."
+            st.markdown(f"""
+            <div style="font-family:var(--mono);font-size:12px;color:var(--mut);
+                        background:var(--bg);border:1px solid var(--bdr);border-radius:0 0 6px 6px;
+                        padding:20px 16px;line-height:2;min-height:200px">
+              <div style="margin-bottom:14px;font-family:var(--sans);font-size:12px">{hint}</div>
+              <span style="color:var(--bdr)">-- STEP 1: External Locations / Storage Credentials</span><br>
+              <span style="color:var(--bdr)">-- STEP 2: Schema / Catalog Setup</span><br>
+              <span style="color:var(--bdr)">-- STEP 3: GRANT Statements</span><br>
+              <span style="color:var(--bdr)">-- STEP 4: Column Masks</span><br>
+              <span style="color:var(--bdr)">-- STEP 5: Row Filters</span><br>
+              <span style="color:var(--bdr)">-- STEP 6: No-Equivalent Constructs (TODO)</span>
+            </div>
+            """, unsafe_allow_html=True)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
