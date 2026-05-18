@@ -71,3 +71,7 @@ Thumbs.db
 # *.json
 # *.csv
 # *.parquet
+
+# Translation output files
+output/*.sql
+output/history.json
