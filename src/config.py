@@ -31,6 +31,14 @@ PRIVILEGE_MAPPING = {
     "admin": "ALL PRIVILEGES"
 }
 
+# Ranger path/storage access types → UC External Location privileges
+EXTERNAL_LOCATION_PRIVILEGE_MAPPING = {
+    "read": "READ FILES",
+    "write": "WRITE FILES",
+    "execute": "READ FILES",   # closest UC equivalent for execute on a path
+    "all": "ALL PRIVILEGES",
+}
+
 # Ranger to UC resource type mapping
 RESOURCE_TYPE_MAPPING = {
     "database": "schema",

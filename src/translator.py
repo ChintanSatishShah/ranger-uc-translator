@@ -5,7 +5,7 @@ Translates Apache Ranger policies to Unity Catalog SQL statements.
 from typing import List, Optional, Dict, Union
 from dataclasses import dataclass
 from .parser import RangerPolicy, PolicyType
-from .config import TranslationConfig, MASKING_FUNCTIONS
+from .config import TranslationConfig, MASKING_FUNCTIONS, EXTERNAL_LOCATION_PRIVILEGE_MAPPING
 from . import utils
 
 
@@ -27,8 +27,17 @@ class PolicyTranslator:
         self.config = config
         self.errors = []
     
+    def _is_path_policy(self, policy: RangerPolicy) -> bool:
+        """True if this policy governs file paths (HDFS, S3, URL) → UC External Location."""
+        return bool(
+            policy.resources.get('path') or
+            policy.resources.get('url')
+        ) and not policy.resources.get('table')
+
     def translate(self, policy: RangerPolicy) -> Optional[UCPolicy]:
         """Translate a single Ranger policy to UC format."""
+        if self._is_path_policy(policy):
+            return self._translate_path_policy(policy)
         if policy.policy_type == PolicyType.ACCESS:
             return self._translate_access(policy)
         elif policy.policy_type == PolicyType.ROW_FILTER:
@@ -38,6 +47,62 @@ class PolicyTranslator:
         else:
             self.errors.append(f"Unsupported policy type: {policy.policy_type}")
             return None
+
+    def _translate_path_policy(self, policy: RangerPolicy) -> Optional[UCPolicy]:
+        """Translate HDFS/S3 path policy to UC External Location grants."""
+        path_resource = policy.resources.get('path') or policy.resources.get('url')
+        if not path_resource or not path_resource.values:
+            return None
+
+        paths = path_resource.values
+        sql_statements = []
+        principals = []
+        is_first = True
+
+        for path in paths:
+            # Derive a readable External Location placeholder from the path
+            slug = path.strip('/').replace('/', '_').replace('*', 'all').replace('{USER}', 'USER') or 'root'
+            ext_loc = f"<external_location_for_{slug}>"
+
+            for item in (policy.policy_items or []):
+                privileges = [
+                    EXTERNAL_LOCATION_PRIVILEGE_MAPPING.get(a['type'].lower(), a['type'].upper())
+                    for a in item.accesses if a.get('isAllowed', True) and a.get('type')
+                ]
+                if not privileges:
+                    continue
+
+                for principal in list(item.users) + list(item.groups) + list(item.roles or []):
+                    uc_principal = self.config.get_principal_mapping(principal)
+                    principals.append(uc_principal)
+                    for priv in privileges:
+                        grant_sql = f"GRANT {priv} ON EXTERNAL LOCATION `{ext_loc}` TO `{uc_principal}`"
+                        if is_first:
+                            sql_statements.append(utils.format_sql_statement(
+                                grant_sql,
+                                policy_name=policy.name,
+                                policy_id=str(policy.id),
+                                policy_description=(
+                                    f"{policy.description or ''}\n"
+                                    f"-- NOTE: Replace '{ext_loc}' with the actual UC External Location name\n"
+                                    f"-- that corresponds to the Ranger path: {path}"
+                                ).strip()
+                            ))
+                            is_first = False
+                        else:
+                            sql_statements.append(utils.format_sql_statement(grant_sql))
+
+        if not sql_statements:
+            return None
+
+        return UCPolicy(
+            policy_id=str(policy.id),
+            policy_type="EXTERNAL_LOCATION",
+            sql_statements=sql_statements,
+            description=f"External Location grant for path(s): {paths}",
+            resource=f"EXTERNAL LOCATION {paths}",
+            principals=principals
+        )
     
     def translate_all(self, policies: List[RangerPolicy]) -> List[UCPolicy]:
         """Translate multiple Ranger policies."""
@@ -79,7 +144,7 @@ class PolicyTranslator:
         db_val = db_resource.values[0] if (db_resource and db_resource.values) else None
         table_val = table_resource.values[0] if (table_resource and table_resource.values) else None
 
-        # URL/S3 policy: no UC equivalent — caller will emit a "not translatable" note
+        # URL/S3 policy: handled separately as External Location grant
         if url_resource and not table_resource:
             return None
 
@@ -116,17 +181,27 @@ class PolicyTranslator:
         resource = self._build_resource_path(policy.resources)
         if not resource:
             res_types = list(policy.resources.keys())
+            # Explain why each resource type cannot be translated
+            reasons = {
+                'topic': "Kafka topics are managed by Kafka ACLs, not Unity Catalog.",
+                'cluster': "Kafka cluster admin is managed by Kafka ACLs, not Unity Catalog.",
+                'consumergroup': "Kafka consumer groups are managed by Kafka ACLs, not Unity Catalog.",
+                'delegationtoken': "Kafka delegation tokens are not a Unity Catalog concept.",
+                'entity': "Apache Atlas entity governance does not map to Unity Catalog SQL.",
+                'entity-type': "Apache Atlas entity types do not map to Unity Catalog SQL.",
+                'entity-classification': "Atlas classifications differ from UC tags — manual mapping required.",
+                'hiveservice': "Hive service-level admin has no direct Unity Catalog equivalent.",
+            }
+            reason_lines = [reasons.get(rt, f"'{rt}' has no Unity Catalog equivalent.") for rt in res_types]
             msg = (
-                f"Policy '{policy.name}' (id={policy.id}) cannot be translated to Unity Catalog.\n"
-                f"-- Reason: resource types {res_types} have no Unity Catalog equivalent.\n"
-                f"-- Ranger resource types like 'path', 'topic', 'cluster', 'entity', 'url'\n"
-                f"-- are specific to HDFS, Kafka, Atlas, or S3 and do not map to UC objects."
+                f"-- NOT TRANSLATABLE: Policy '{policy.name}' (id={policy.id})\n"
+                + "\n".join(f"-- {r}" for r in reason_lines)
             )
-            self.errors.append(f"Not translatable — '{policy.name}' (id={policy.id}): resource types {res_types} have no UC equivalent.")
+            self.errors.append(f"Not translatable — '{policy.name}' (id={policy.id}): {'; '.join(reason_lines)}")
             return UCPolicy(
                 policy_id=str(policy.id),
                 policy_type="NOT_TRANSLATABLE",
-                sql_statements=[utils.format_sql_statement(f"-- NOT TRANSLATABLE: {msg}", policy_name=policy.name, policy_id=str(policy.id), policy_description=policy.description)],
+                sql_statements=[utils.format_sql_statement(msg, policy_name=policy.name, policy_id=str(policy.id), policy_description=policy.description)],
                 description=f"Cannot translate policy '{policy.name}' to Unity Catalog",
                 resource=str(res_types),
                 principals=[]
