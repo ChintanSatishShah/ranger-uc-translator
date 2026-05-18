@@ -79,7 +79,7 @@ class PolicyTranslator:
         db_val = db_resource.values[0] if (db_resource and db_resource.values) else None
         table_val = table_resource.values[0] if (table_resource and table_resource.values) else None
 
-        # URL/S3 policy: no UC equivalent
+        # URL/S3 policy: no UC equivalent — caller will emit a "not translatable" note
         if url_resource and not table_resource:
             return None
 
@@ -116,11 +116,21 @@ class PolicyTranslator:
         resource = self._build_resource_path(policy.resources)
         if not resource:
             res_types = list(policy.resources.keys())
-            self.errors.append(
-                f"Skipped policy '{policy.name}' (id={policy.id}): "
-                f"resource types {res_types} have no Unity Catalog equivalent (e.g. URL/S3 paths)."
+            msg = (
+                f"Policy '{policy.name}' (id={policy.id}) cannot be translated to Unity Catalog.\n"
+                f"-- Reason: resource types {res_types} have no Unity Catalog equivalent.\n"
+                f"-- Ranger resource types like 'path', 'topic', 'cluster', 'entity', 'url'\n"
+                f"-- are specific to HDFS, Kafka, Atlas, or S3 and do not map to UC objects."
             )
-            return None
+            self.errors.append(f"Not translatable — '{policy.name}' (id={policy.id}): resource types {res_types} have no UC equivalent.")
+            return UCPolicy(
+                policy_id=str(policy.id),
+                policy_type="NOT_TRANSLATABLE",
+                sql_statements=[utils.format_sql_statement(f"-- NOT TRANSLATABLE: {msg}", policy_name=policy.name, policy_id=str(policy.id), policy_description=policy.description)],
+                description=f"Cannot translate policy '{policy.name}' to Unity Catalog",
+                resource=str(res_types),
+                principals=[]
+            )
 
         # Generate GRANT statements
         is_first_stmt = True
@@ -192,9 +202,21 @@ class PolicyTranslator:
         # Build UC resource path
         resource = self._build_resource_path(policy.resources)
         if not resource:
-            self.errors.append(f"Could not determine resource for policy {policy.id}")
-            return None
-        
+            res_types = list(policy.resources.keys())
+            self.errors.append(f"Not translatable — '{policy.name}' (id={policy.id}): resource types {res_types} have no UC equivalent.")
+            return UCPolicy(
+                policy_id=str(policy.id),
+                policy_type="NOT_TRANSLATABLE",
+                sql_statements=[utils.format_sql_statement(
+                    f"-- NOT TRANSLATABLE: Policy '{policy.name}' (id={policy.id})\n"
+                    f"-- Reason: resource types {res_types} have no Unity Catalog equivalent.",
+                    policy_name=policy.name, policy_id=str(policy.id), policy_description=policy.description
+                )],
+                description=f"Cannot translate row filter policy '{policy.name}' to Unity Catalog",
+                resource=str(res_types),
+                principals=[]
+            )
+
         parts = resource.split('.')
         if len(parts) != 3:
             self.errors.append(f"Invalid table path for row filter: {resource}")
@@ -267,9 +289,21 @@ RETURN {item.filter_expr}"""
         # Build UC resource path
         resource = self._build_resource_path(policy.resources)
         if not resource:
-            self.errors.append(f"Could not determine resource for policy {policy.id}")
-            return None
-        
+            res_types = list(policy.resources.keys())
+            self.errors.append(f"Not translatable — '{policy.name}' (id={policy.id}): resource types {res_types} have no UC equivalent.")
+            return UCPolicy(
+                policy_id=str(policy.id),
+                policy_type="NOT_TRANSLATABLE",
+                sql_statements=[utils.format_sql_statement(
+                    f"-- NOT TRANSLATABLE: Policy '{policy.name}' (id={policy.id})\n"
+                    f"-- Reason: resource types {res_types} have no Unity Catalog equivalent.",
+                    policy_name=policy.name, policy_id=str(policy.id), policy_description=policy.description
+                )],
+                description=f"Cannot translate column mask policy '{policy.name}' to Unity Catalog",
+                resource=str(res_types),
+                principals=[]
+            )
+
         parts = resource.split('.')
         if len(parts) != 3:
             self.errors.append(f"Invalid table path for column masking: {resource}")

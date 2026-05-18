@@ -95,35 +95,51 @@ class RangerPolicyParser:
     def parse_json(self, data: Dict[str, Any]) -> bool:
         """Parse Ranger policy JSON data."""
         try:
-            if 'policies' in data:
-                for policy_data in data['policies']:
-                    policy = self._parse_policy(policy_data)
-                    if policy:
-                        self.policies.append(policy)
-            elif 'policyItems' in data or 'dataMaskPolicyItems' in data or 'rowFilterPolicyItems' in data:
-                policy = self._parse_policy(data)
-                if policy:
-                    self.policies.append(policy)
+            # ACL provider test format: testCases[].servicePolicies
+            if 'testCases' in data:
+                for tc in data['testCases']:
+                    sp = tc.get('servicePolicies', {})
+                    self._parse_service_policies(sp)
+                return len(self.parse_errors) == 0
 
-            # Tag-based policies live under tagPolicyInfo.tagPolicies
-            if 'tagPolicyInfo' in data:
-                tag_policy_info = data['tagPolicyInfo']
-                for policy_data in tag_policy_info.get('tagPolicies', []):
-                    policy = self._parse_policy(policy_data)
-                    if policy:
-                        self.policies.append(policy)
-
-            if 'tagDefinitions' in data:
-                for tag_name, tag_data in data['tagDefinitions'].items():
-                    self.tags[tag_name] = RangerTag(
-                        type=tag_name,
-                        attributes=tag_data.get('attributeDefs', {})
-                    )
-
+            self._parse_service_policies(data)
             return len(self.parse_errors) == 0
         except Exception as e:
             self.parse_errors.append(f"Error parsing JSON: {str(e)}")
             return False
+
+    def _parse_service_policies(self, data: Dict[str, Any]):
+        """Parse policies from a servicePolicies block or root export."""
+        if 'policies' in data:
+            for policy_data in data['policies']:
+                policy = self._parse_policy(policy_data)
+                if policy:
+                    self.policies.append(policy)
+        elif 'policyItems' in data or 'dataMaskPolicyItems' in data or 'rowFilterPolicyItems' in data:
+            policy = self._parse_policy(data)
+            if policy:
+                self.policies.append(policy)
+
+        # tagPolicyInfo.tagPolicies (policyengine format: array)
+        if 'tagPolicyInfo' in data:
+            for policy_data in data['tagPolicyInfo'].get('tagPolicies', []):
+                policy = self._parse_policy(policy_data)
+                if policy:
+                    self.policies.append(policy)
+
+        # tagPolicies as dict with nested policies array (aclprovider format)
+        if 'tagPolicies' in data and isinstance(data['tagPolicies'], dict):
+            for policy_data in data['tagPolicies'].get('policies', []):
+                policy = self._parse_policy(policy_data)
+                if policy:
+                    self.policies.append(policy)
+
+        if 'tagDefinitions' in data:
+            for tag_name, tag_data in data['tagDefinitions'].items():
+                self.tags[tag_name] = RangerTag(
+                    type=tag_name,
+                    attributes=tag_data.get('attributeDefs', {})
+                )
     
     def _parse_policy(self, policy_data: Dict[str, Any]) -> Optional[RangerPolicy]:
         """Parse a single Ranger policy."""

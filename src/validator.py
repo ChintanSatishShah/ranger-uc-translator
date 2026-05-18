@@ -3,7 +3,7 @@ Validation module for Ranger policies and Unity Catalog SQL statements.
 Provides input validation, SQL validation, and error reporting.
 """
 
-from typing import Dict, List, Any, Optional, Tuple
+from typing import Dict, List, Any, Optional
 from dataclasses import dataclass, field
 from enum import Enum
 
@@ -40,7 +40,26 @@ class RangerPolicyValidator:
         """Validate a Ranger export JSON structure containing multiple policies."""
         result = ValidationResult(is_valid=True, errors=[], warnings=[], policies=[])
 
-        # Detect Apache Ranger test file format — has serviceDef/tests at root alongside policies
+        # ACL provider test format: testCases[].servicePolicies
+        if 'testCases' in export_data:
+            result.add_warning(
+                "Detected ACL provider test format ('testCases' key). "
+                "Policies will be extracted from each testCase's servicePolicies block."
+            )
+            all_policies = []
+            root_service = None
+            for tc in export_data['testCases']:
+                sp = tc.get('servicePolicies', {})
+                root_service = sp.get('serviceName', root_service)
+                all_policies += sp.get('policies', [])
+                tag_block = sp.get('tagPolicies', {})
+                if isinstance(tag_block, dict):
+                    all_policies += tag_block.get('policies', [])
+                elif isinstance(tag_block, list):
+                    all_policies += tag_block
+            return self._validate_policy_list(all_policies, root_service, result)
+
+        # Detect standard Ranger test file format — has serviceDef/tests at root alongside policies
         ignored_keys = {'serviceDef', 'original-serviceDef', 'tests', 'serviceName'}
         detected = ignored_keys & set(export_data.keys())
         if detected:
@@ -59,7 +78,6 @@ class RangerPolicyValidator:
             return result
 
         policies = export_data.get('policies', [])
-        # Also include tag policies for count purposes
         tag_policies = export_data.get('tagPolicyInfo', {}).get('tagPolicies', [])
         all_policies = list(policies) + list(tag_policies)
         
@@ -67,12 +85,19 @@ class RangerPolicyValidator:
             result.add_error("'policies' field must be a list")
             return result
 
+        root_service = export_data.get('serviceName')
+        return self._validate_policy_list(all_policies, root_service, result)
+
+    def _validate_policy_list(
+        self,
+        all_policies: List[Dict],
+        root_service: Optional[str],
+        result: "ValidationResult"
+    ) -> "ValidationResult":
+        """Validate a flat list of policy dicts, propagating root_service where missing."""
         if len(all_policies) == 0:
             result.add_warning("Export contains no policies")
             return result
-
-        # Propagate root-level serviceName into policies that lack a service field
-        root_service = export_data.get('serviceName')
 
         for idx, policy in enumerate(all_policies):
             policy_name = policy.get('name', f'Policy_{idx}')
@@ -202,9 +227,9 @@ class RangerPolicyValidator:
             if not has_principals:
                 result.add_warning(f"Policy item {idx} has no users, groups, or roles")
 
-            # Check for accesses
+            # Check for accesses (absent or empty = audit-only item, not an error)
             if 'accesses' not in item:
-                result.add_error(f"Policy item {idx} missing 'accesses' field")
+                result.add_warning(f"Policy item {idx} has no 'accesses' field (audit-only policy item)")
             elif not isinstance(item['accesses'], list):
                 result.add_error(f"Policy item {idx} accesses must be a list")
             elif len(item['accesses']) == 0:
