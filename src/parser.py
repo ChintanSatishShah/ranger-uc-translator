@@ -25,10 +25,11 @@ class RangerResource:
 
 @dataclass
 class RangerPolicyItem:
-    """Represents a Ranger policy item (permissions for users/groups)."""
+    """Represents a Ranger policy item (permissions for users/groups/roles)."""
     users: List[str]
     groups: List[str]
     accesses: List[Dict[str, Any]]
+    roles: List[str] = None
     delegate_admin: bool = False
     conditions: List[Dict[str, Any]] = None
 
@@ -58,6 +59,9 @@ class RangerPolicy:
     service: str
     resources: Dict[str, RangerResource]
     policy_items: List[RangerPolicyItem] = None
+    deny_policy_items: List[RangerPolicyItem] = None
+    allow_exceptions: List[RangerPolicyItem] = None
+    deny_exceptions: List[RangerPolicyItem] = None
     row_filter_items: List[RangerRowFilterItem] = None
     masking_items: List[RangerMaskingItem] = None
     is_enabled: bool = True
@@ -91,27 +95,31 @@ class RangerPolicyParser:
     def parse_json(self, data: Dict[str, Any]) -> bool:
         """Parse Ranger policy JSON data."""
         try:
-            # Check if this is a policy export or service definition
             if 'policies' in data:
-                # Policy export format
                 for policy_data in data['policies']:
                     policy = self._parse_policy(policy_data)
                     if policy:
                         self.policies.append(policy)
             elif 'policyItems' in data or 'dataMaskPolicyItems' in data or 'rowFilterPolicyItems' in data:
-                # Single policy format
                 policy = self._parse_policy(data)
                 if policy:
                     self.policies.append(policy)
-            
-            # Parse resource tags if present
+
+            # Tag-based policies live under tagPolicyInfo.tagPolicies
+            if 'tagPolicyInfo' in data:
+                tag_policy_info = data['tagPolicyInfo']
+                for policy_data in tag_policy_info.get('tagPolicies', []):
+                    policy = self._parse_policy(policy_data)
+                    if policy:
+                        self.policies.append(policy)
+
             if 'tagDefinitions' in data:
                 for tag_name, tag_data in data['tagDefinitions'].items():
                     self.tags[tag_name] = RangerTag(
                         type=tag_name,
                         attributes=tag_data.get('attributeDefs', {})
                     )
-            
+
             return len(self.parse_errors) == 0
         except Exception as e:
             self.parse_errors.append(f"Error parsing JSON: {str(e)}")
@@ -120,15 +128,15 @@ class RangerPolicyParser:
     def _parse_policy(self, policy_data: Dict[str, Any]) -> Optional[RangerPolicy]:
         """Parse a single Ranger policy."""
         try:
-            # Determine policy type
-            if 'dataMaskPolicyItems' in policy_data:
+            # Numeric policyType field (0=access, 1=mask, 2=rowfilter) takes precedence
+            numeric_type = policy_data.get('policyType')
+            if numeric_type == 1 or 'dataMaskPolicyItems' in policy_data:
                 policy_type = PolicyType.COLUMN_MASK
-            elif 'rowFilterPolicyItems' in policy_data:
+            elif numeric_type == 2 or 'rowFilterPolicyItems' in policy_data:
                 policy_type = PolicyType.ROW_FILTER
             else:
                 policy_type = PolicyType.ACCESS
-            
-            # Parse resources
+
             resources = {}
             for res_name, res_data in policy_data.get('resources', {}).items():
                 resources[res_name] = RangerResource(
@@ -137,25 +145,24 @@ class RangerPolicyParser:
                     is_excludes=res_data.get('isExcludes', False),
                     is_recursive=res_data.get('isRecursive', False)
                 )
-            
-            # Parse policy items based on type
+
             policy_items = None
+            deny_policy_items = None
+            allow_exceptions = None
+            deny_exceptions = None
             row_filter_items = None
             masking_items = None
-            
+
             if policy_type == PolicyType.ACCESS:
-                policy_items = self._parse_policy_items(
-                    policy_data.get('policyItems', [])
-                )
+                policy_items = self._parse_policy_items(policy_data.get('policyItems', []))
+                deny_policy_items = self._parse_policy_items(policy_data.get('denyPolicyItems', []))
+                allow_exceptions = self._parse_policy_items(policy_data.get('allowExceptions', []))
+                deny_exceptions = self._parse_policy_items(policy_data.get('denyExceptions', []))
             elif policy_type == PolicyType.ROW_FILTER:
-                row_filter_items = self._parse_row_filter_items(
-                    policy_data.get('rowFilterPolicyItems', [])
-                )
+                row_filter_items = self._parse_row_filter_items(policy_data.get('rowFilterPolicyItems', []))
             elif policy_type == PolicyType.COLUMN_MASK:
-                masking_items = self._parse_masking_items(
-                    policy_data.get('dataMaskPolicyItems', [])
-                )
-            
+                masking_items = self._parse_masking_items(policy_data.get('dataMaskPolicyItems', []))
+
             return RangerPolicy(
                 id=policy_data.get('id', 0),
                 name=policy_data.get('name', ''),
@@ -163,6 +170,9 @@ class RangerPolicyParser:
                 service=policy_data.get('service', ''),
                 resources=resources,
                 policy_items=policy_items,
+                deny_policy_items=deny_policy_items,
+                allow_exceptions=allow_exceptions,
+                deny_exceptions=deny_exceptions,
                 row_filter_items=row_filter_items,
                 masking_items=masking_items,
                 is_enabled=policy_data.get('isEnabled', True),
@@ -180,6 +190,7 @@ class RangerPolicyParser:
             items.append(RangerPolicyItem(
                 users=item_data.get('users', []),
                 groups=item_data.get('groups', []),
+                roles=item_data.get('roles', []),
                 accesses=item_data.get('accesses', []),
                 delegate_admin=item_data.get('delegateAdmin', False),
                 conditions=item_data.get('conditions', [])

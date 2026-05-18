@@ -39,40 +39,58 @@ class RangerPolicyValidator:
     def validate_ranger_export(self, export_data: Dict[str, Any]) -> ValidationResult:
         """Validate a Ranger export JSON structure containing multiple policies."""
         result = ValidationResult(is_valid=True, errors=[], warnings=[], policies=[])
-        
-        # Check if this is an export format
-        if 'policies' not in export_data:
+
+        # Detect Apache Ranger test file format — has serviceDef/tests at root alongside policies
+        ignored_keys = {'serviceDef', 'original-serviceDef', 'tests', 'serviceName'}
+        detected = ignored_keys & set(export_data.keys())
+        if detected:
+            result.add_warning(
+                f"Detected Ranger test file format (keys: {', '.join(sorted(detected))}). "
+                "serviceDef and tests sections will be ignored — only 'policies' will be translated."
+            )
+
+        if 'tagPolicyInfo' in export_data:
+            result.add_warning(
+                "Detected 'tagPolicyInfo' section. Tag-based policies will be extracted and translated."
+            )
+
+        if 'policies' not in export_data and 'tagPolicyInfo' not in export_data:
             result.add_error("Export JSON missing 'policies' field. Expected format: {\"policies\": [...]}")
             return result
-        
-        policies = export_data['policies']
+
+        policies = export_data.get('policies', [])
+        # Also include tag policies for count purposes
+        tag_policies = export_data.get('tagPolicyInfo', {}).get('tagPolicies', [])
+        all_policies = list(policies) + list(tag_policies)
         
         if not isinstance(policies, list):
             result.add_error("'policies' field must be a list")
             return result
-        
-        if len(policies) == 0:
+
+        if len(all_policies) == 0:
             result.add_warning("Export contains no policies")
             return result
-        
-        # Validate each policy
-        for idx, policy in enumerate(policies):
+
+        # Propagate root-level serviceName into policies that lack a service field
+        root_service = export_data.get('serviceName')
+
+        for idx, policy in enumerate(all_policies):
             policy_name = policy.get('name', f'Policy_{idx}')
             result.policies.append(policy_name)
-            
+
+            if root_service and 'service' not in policy:
+                policy = {**policy, 'service': root_service}
+
             policy_result = self.validate_policy_json(policy)
-            
-            # Prefix errors and warnings with policy name
+
             for error in policy_result.errors:
                 result.add_error(f"[{policy_name}] {error}")
-            
             for warning in policy_result.warnings:
                 result.add_warning(f"[{policy_name}] {warning}")
-        
-        # Overall validation status
+
         if result.errors:
             result.is_valid = False
-        
+
         return result
     
     def validate_policy_json(self, policy_data: Dict[str, Any]) -> ValidationResult:
@@ -127,8 +145,18 @@ class RangerPolicyValidator:
             if not mask_result.is_valid:
                 result.is_valid = False
         
-        # At least one policy item type should exist
-        has_items = any(k in policy_data for k in ['policyItems', 'rowFilterPolicyItems', 'dataMaskPolicyItems'])
+        # Validate roles-only policy items (roles field present but no users/groups is valid)
+        for items_key in ('denyPolicyItems', 'allowExceptions', 'denyExceptions'):
+            if items_key in policy_data:
+                items_result = self._validate_policy_items(policy_data[items_key])
+                result.errors.extend(items_result.errors)
+                result.warnings.extend(items_result.warnings)
+                if not items_result.is_valid:
+                    result.is_valid = False
+
+        all_item_keys = ['policyItems', 'rowFilterPolicyItems', 'dataMaskPolicyItems',
+                         'denyPolicyItems', 'allowExceptions', 'denyExceptions']
+        has_items = any(k in policy_data for k in all_item_keys)
         if not has_items:
             result.add_warning("Policy has no policy items (no permissions defined)")
         
@@ -166,18 +194,21 @@ class RangerPolicyValidator:
             return result
         
         for idx, item in enumerate(items):
-            # Check for users or groups
-            has_principals = ('users' in item and item['users']) or ('groups' in item and item['groups'])
+            has_principals = (
+                ('users' in item and item['users']) or
+                ('groups' in item and item['groups']) or
+                ('roles' in item and item['roles'])
+            )
             if not has_principals:
-                result.add_warning(f"Policy item {idx} has no users or groups")
-            
+                result.add_warning(f"Policy item {idx} has no users, groups, or roles")
+
             # Check for accesses
             if 'accesses' not in item:
                 result.add_error(f"Policy item {idx} missing 'accesses' field")
             elif not isinstance(item['accesses'], list):
                 result.add_error(f"Policy item {idx} accesses must be a list")
             elif len(item['accesses']) == 0:
-                result.add_error(f"Policy item {idx} has empty accesses list")
+                result.add_warning(f"Policy item {idx} has empty accesses list (audit-only policy item)")
             else:
                 # Validate each access
                 for access in item['accesses']:
@@ -195,10 +226,13 @@ class RangerPolicyValidator:
             return result
         
         for idx, item in enumerate(items):
-            # Check for users or groups
-            has_principals = ('users' in item and item['users']) or ('groups' in item and item['groups'])
+            has_principals = (
+                ('users' in item and item['users']) or
+                ('groups' in item and item['groups']) or
+                ('roles' in item and item['roles'])
+            )
             if not has_principals:
-                result.add_warning(f"Row filter item {idx} has no users or groups")
+                result.add_warning(f"Row filter item {idx} has no users, groups, or roles")
             
             # Check for filter expression
             if 'rowFilterInfo' not in item:
@@ -218,14 +252,17 @@ class RangerPolicyValidator:
             result.add_error("dataMaskPolicyItems must be a list")
             return result
         
-        valid_mask_types = ['MASK', 'MASK_SHOW_LAST_4', 'MASK_SHOW_FIRST_4', 'MASK_HASH', 
-                           'MASK_NULL', 'MASK_DATE_SHOW_YEAR', 'CUSTOM']
+        valid_mask_types = ['MASK', 'MASK_SHOW_LAST_4', 'MASK_SHOW_FIRST_4', 'MASK_HASH',
+                           'MASK_NULL', 'MASK_NONE', 'MASK_DATE_SHOW_YEAR', 'SHUFFLE', 'NULL', 'CUSTOM']
         
         for idx, item in enumerate(items):
-            # Check for users or groups
-            has_principals = ('users' in item and item['users']) or ('groups' in item and item['groups'])
+            has_principals = (
+                ('users' in item and item['users']) or
+                ('groups' in item and item['groups']) or
+                ('roles' in item and item['roles'])
+            )
             if not has_principals:
-                result.add_warning(f"Masking item {idx} has no users or groups")
+                result.add_warning(f"Masking item {idx} has no users, groups, or roles")
             
             # Check for mask info
             if 'dataMaskInfo' not in item:
