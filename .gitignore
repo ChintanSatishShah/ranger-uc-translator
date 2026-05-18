@@ -75,3 +75,6 @@ Thumbs.db
 # Translation output files
 output/*.sql
 output/history.json
+
+# Translation input files (uploaded/pasted JSON — not sample files)
+input/*.json

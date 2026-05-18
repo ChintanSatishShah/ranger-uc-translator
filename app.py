@@ -14,34 +14,53 @@ from src.validator import RangerPolicyValidator
 from src.config import TranslationConfig
 
 st.set_page_config(
-    page_title="Ranger → UC Policy Translator",
+    page_title="Ranger → UC Translator",
     page_icon="🔐",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="expanded",
 )
 
-# ── Theme ──────────────────────────────────────────────────────────────────────
+# ── CSS ────────────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 
 :root {
-  --bg: #0f1117; --sur: #1a1d27; --sur2: #22263a; --bdr: #2e3350;
-  --acc: #e84a20; --pur: #9c6fde; --grn: #00c896; --amb: #f5a623;
-  --red: #e74c3c; --txt: #e8eaf0; --mut: #7a8099;
-  --mono: 'JetBrains Mono', 'Fira Code', monospace;
-  --sans: 'Inter', system-ui, sans-serif;
+  --bg:#0f1117;--sur:#1a1d27;--sur2:#22263a;--bdr:#2e3350;
+  --acc:#e84a20;--pur:#9c6fde;--grn:#00c896;--amb:#f5a623;
+  --red:#e74c3c;--blu:#1e88e5;
+  --txt:#e8eaf0;--mut:#7a8099;
+  --mono:'JetBrains Mono','Fira Code',monospace;
+  --sans:'Inter',system-ui,sans-serif;
 }
 
-/* Base */
+/* ── Base ── */
 .stApp { background: var(--bg) !important; color: var(--txt); font-family: var(--sans); }
-section[data-testid="stSidebar"] { background: var(--sur) !important; border-right: 1px solid var(--bdr); }
-header[data-testid="stHeader"] { background: var(--sur) !important; border-bottom: 1px solid var(--bdr); }
-.block-container { padding-top: 1rem !important; }
+.block-container { padding: 0 1rem 1rem !important; max-width: 100% !important; }
 
-/* Tabs */
+/* ── Header / Toolbar ── */
+header[data-testid="stHeader"] {
+  background: var(--sur) !important;
+  border-bottom: 1px solid var(--bdr) !important;
+}
+[data-testid="stToolbar"] { display: none; }
+
+/* ── Sidebar ── */
+section[data-testid="stSidebar"] {
+  background: var(--sur) !important;
+  border-right: 1px solid var(--bdr) !important;
+  min-width: 240px !important; max-width: 260px !important;
+}
+section[data-testid="stSidebar"] > div:first-child { padding: 0 !important; }
+[data-testid="stSidebarContent"] { padding: 0 !important; }
+
+/* ── Main tabs — push them to look like a header row ── */
+.stTabs { margin-top: 0 !important; }
 .stTabs [data-baseweb="tab-list"] {
-  background: var(--sur); border-bottom: 1px solid var(--bdr);
-  gap: 2px; padding: 4px 6px; border-radius: 8px 8px 0 0;
+  background: var(--sur);
+  border-bottom: 1px solid var(--bdr);
+  gap: 2px; padding: 8px 16px;
+  justify-content: flex-end;
 }
 .stTabs [data-baseweb="tab"] {
   background: transparent; color: var(--mut);
@@ -50,94 +69,211 @@ header[data-testid="stHeader"] { background: var(--sur) !important; border-botto
 }
 .stTabs [data-baseweb="tab"]:hover { background: var(--sur2); color: var(--txt); }
 .stTabs [aria-selected="true"] { background: var(--acc) !important; color: #fff !important; }
-.stTabs [data-baseweb="tab-panel"] { background: var(--bg); border: 1px solid var(--bdr); border-top: none; border-radius: 0 0 8px 8px; padding: 1rem; }
-
-/* Buttons */
-.stButton > button[kind="primary"] {
-  background: var(--acc) !important; border: none !important; color: #fff !important;
-  font-weight: 600; font-size: 12px; border-radius: 6px; transition: opacity .2s;
+.stTabs [data-baseweb="tab-panel"] {
+  background: var(--bg); border: none;
+  padding: 0 !important;
 }
-.stButton > button[kind="primary"]:hover { opacity: .85; }
-.stButton > button[kind="secondary"] {
+.stTabs [data-baseweb="tab-highlight"] { display: none; }
+.stTabs [data-baseweb="tab-border"] { display: none; }
+
+/* ── Buttons ── */
+.stButton > button {
   background: var(--sur2) !important; border: 1px solid var(--bdr) !important;
   color: var(--txt) !important; font-size: 12px; border-radius: 6px;
+  font-family: var(--sans); font-weight: 500;
 }
-.stButton > button[kind="secondary"]:hover { border-color: var(--mut) !important; }
+.stButton > button:hover { border-color: var(--mut) !important; }
+.stButton > button[kind="primary"] {
+  background: var(--acc) !important; border-color: var(--acc) !important;
+  color: #fff !important; font-weight: 600;
+}
+.stButton > button[kind="primary"]:hover { opacity: .85; }
 .stDownloadButton > button {
   background: var(--sur2) !important; border: 1px solid var(--bdr) !important;
   color: var(--txt) !important; font-size: 11px; border-radius: 6px;
 }
 
-/* Inputs */
+/* ── Inputs ── */
 .stTextArea textarea, .stTextInput input {
   background: var(--bg) !important; color: var(--txt) !important;
   border: 1px solid var(--bdr) !important; border-radius: 6px;
   font-family: var(--mono); font-size: 12px; line-height: 1.7;
 }
-.stTextArea textarea:focus, .stTextInput input:focus { border-color: var(--acc) !important; }
+.stTextArea textarea:focus, .stTextInput input:focus { border-color: var(--acc) !important; box-shadow: none !important; }
 .stSelectbox [data-baseweb="select"] > div {
-  background: var(--sur2) !important; border-color: var(--bdr) !important; color: var(--txt) !important;
+  background: var(--sur2) !important; border-color: var(--bdr) !important;
+  color: var(--txt) !important; border-radius: 6px;
 }
+[data-baseweb="popover"] { background: var(--sur2) !important; border: 1px solid var(--bdr) !important; }
+[data-baseweb="menu"] { background: var(--sur2) !important; }
+[role="option"] { color: var(--txt) !important; }
+[role="option"]:hover { background: var(--bdr) !important; }
 
-/* Metrics */
+/* ── File uploader — make it look like the drag zone ── */
+[data-testid="stFileUploaderDropzone"] {
+  background: var(--sur2) !important;
+  border: 1.5px dashed var(--bdr) !important;
+  border-radius: 8px !important;
+  padding: 10px !important;
+}
+[data-testid="stFileUploaderDropzone"]:hover { border-color: var(--acc) !important; background: rgba(232,74,32,.05) !important; }
+[data-testid="stFileUploaderDropzone"] p { color: var(--mut) !important; font-size: 11px !important; }
+[data-testid="stFileUploaderDropzone"] svg { opacity: .5; }
+[data-testid="stFileUploaderDropzoneInput"] { cursor: pointer; }
+
+/* ── Metrics ── */
 [data-testid="metric-container"] {
-  background: var(--sur) !important; border: 1px solid var(--bdr); border-radius: 8px; padding: 12px 16px;
+  background: var(--sur) !important; border: 1px solid var(--bdr);
+  border-radius: 8px; padding: 10px 14px;
 }
 [data-testid="metric-container"] label { color: var(--mut) !important; font-size: 10px !important; text-transform: uppercase; letter-spacing: .08em; }
-[data-testid="metric-container"] [data-testid="stMetricValue"] { color: var(--acc) !important; font-size: 24px !important; font-weight: 700; }
+[data-testid="stMetricValue"] { color: var(--acc) !important; font-size: 22px !important; font-weight: 700; }
 
-/* Expanders */
+/* ── Expanders ── */
 details { background: var(--sur) !important; border: 1px solid var(--bdr) !important; border-radius: 6px !important; }
 summary { color: var(--mut) !important; font-size: 12px !important; }
 
-/* Code blocks */
-.stCode, .stCodeBlock { background: var(--sur) !important; border: 1px solid var(--bdr) !important; border-radius: 6px; }
-pre { background: var(--sur) !important; font-family: var(--mono) !important; font-size: 12px !important; }
+/* ── Code ── */
+.stCode, .stCodeBlock, pre { background: var(--sur) !important; border: 1px solid var(--bdr) !important; border-radius: 6px; }
+pre { font-family: var(--mono) !important; font-size: 12px !important; }
 
-/* File uploader */
-[data-testid="stFileUploaderDropzone"] {
-  background: var(--sur2) !important; border: 1.5px dashed var(--bdr) !important; border-radius: 8px !important;
-}
-[data-testid="stFileUploaderDropzone"]:hover { border-color: var(--acc) !important; }
+/* ── Alerts ── */
+.stSuccess { background: rgba(0,200,150,.08) !important; border-left: 3px solid var(--grn) !important; border-radius: 0 6px 6px 0 !important; }
+.stError   { background: rgba(231,76,60,.08)  !important; border-left: 3px solid var(--red) !important; border-radius: 0 6px 6px 0 !important; }
+.stWarning { background: rgba(245,166,35,.08) !important; border-left: 3px solid var(--amb) !important; border-radius: 0 6px 6px 0 !important; }
+.stInfo    { background: rgba(156,111,222,.08)!important; border-left: 3px solid var(--pur) !important; border-radius: 0 6px 6px 0 !important; }
+div[data-testid="stAlert"] p { font-size: 12px !important; }
 
-/* Alerts */
-.stSuccess { background: rgba(0,200,150,.1) !important; border-left: 3px solid var(--grn) !important; border-radius: 0 6px 6px 0 !important; }
-.stError   { background: rgba(231,76,60,.1)  !important; border-left: 3px solid var(--red) !important; border-radius: 0 6px 6px 0 !important; }
-.stWarning { background: rgba(245,166,35,.1) !important; border-left: 3px solid var(--amb) !important; border-radius: 0 6px 6px 0 !important; }
-.stInfo    { background: rgba(156,111,222,.1)!important; border-left: 3px solid var(--pur) !important; border-radius: 0 6px 6px 0 !important; }
+/* ── Dividers ── */
+hr { border-color: var(--bdr) !important; margin: 8px 0 !important; }
 
-/* Dividers */
-hr { border-color: var(--bdr) !important; }
-
-/* Dataframe */
+/* ── DataFrame ── */
 .stDataFrame { border: 1px solid var(--bdr) !important; border-radius: 6px; }
+.stDataFrame th { background: var(--sur) !important; color: var(--mut) !important; font-size: 10px !important; text-transform: uppercase; letter-spacing: .06em; }
 
-/* Scrollbars */
+/* ── Scrollbars ── */
 ::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--bdr); border-radius: 3px; }
 
-/* Custom badges */
-.badge-ranger { display:inline-block; font-size:9px; font-weight:700; padding:2px 7px; border-radius:10px; background:rgba(232,74,32,.15); color:var(--acc); }
-.badge-uc     { display:inline-block; font-size:9px; font-weight:700; padding:2px 7px; border-radius:10px; background:rgba(156,111,222,.15); color:var(--pur); }
-.badge-ok     { display:inline-block; font-size:9px; font-weight:700; padding:2px 7px; border-radius:10px; background:rgba(0,200,150,.15); color:var(--grn); }
-.badge-warn   { display:inline-block; font-size:9px; font-weight:700; padding:2px 7px; border-radius:10px; background:rgba(245,166,35,.15); color:var(--amb); }
-.badge-err    { display:inline-block; font-size:9px; font-weight:700; padding:2px 7px; border-radius:10px; background:rgba(231,76,60,.15); color:var(--red); }
+/* ── Custom component classes ── */
+.app-header {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 16px 10px;
+  background: var(--sur);
+  border-bottom: 1px solid var(--bdr);
+  margin-bottom: 0;
+}
+.logo { font-size: 13px; font-weight: 700; letter-spacing: .07em; color: var(--acc); text-transform: uppercase; font-family: var(--sans); }
+.logo span { color: var(--txt); }
+.hbadge { font-size: 10px; padding: 2px 8px; border-radius: 10px; background: rgba(156,111,222,.15); color: var(--pur); font-weight: 600; }
 
-.map-row { display:flex; align-items:center; gap:8px; padding:5px 10px; border-radius:5px; font-family:var(--mono); font-size:11px; border-bottom: 1px solid var(--bdr); }
+.slbl { font-size: 10px; font-weight: 600; color: var(--mut); letter-spacing: .1em; text-transform: uppercase; padding: 10px 14px 6px; }
+
+.badge { display: inline-block; font-size: 9px; font-weight: 700; padding: 2px 7px; border-radius: 10px; }
+.badge-r  { background: rgba(232,74,32,.15);  color: var(--acc); }
+.badge-u  { background: rgba(156,111,222,.15); color: var(--pur); }
+.badge-ok { background: rgba(0,200,150,.15);  color: var(--grn); }
+.badge-w  { background: rgba(245,166,35,.15); color: var(--amb); }
+.badge-e  { background: rgba(231,76,60,.15);  color: var(--red); }
+
+.pane-hdr {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 12px; background: var(--sur);
+  border: 1px solid var(--bdr); border-radius: 6px 6px 0 0;
+  font-size: 10px; font-weight: 600; color: var(--mut);
+  text-transform: uppercase; letter-spacing: .06em;
+  margin-bottom: -1px;
+}
+.pane-hdr .pbadge { font-size: 9px; font-weight: 700; padding: 2px 6px; border-radius: 8px; }
+.pb-r { background: rgba(232,74,32,.15); color: var(--acc); }
+.pb-u { background: rgba(156,111,222,.15); color: var(--pur); }
+
+.bar {
+  display: flex; align-items: center; gap: 10px;
+  padding: 6px 12px; background: var(--sur);
+  border: 1px solid var(--bdr); border-radius: 0 0 6px 6px;
+  border-top: none; font-size: 10px; color: var(--mut);
+  margin-top: -1px;
+}
+.dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+.dot-ok { background: var(--grn); }
+.dot-warn { background: var(--amb); }
+.dot-err { background: var(--red); }
+
+.section-hdr {
+  font-size: 10px; font-weight: 700; color: var(--mut);
+  text-transform: uppercase; letter-spacing: .1em;
+  padding: 6px 0 4px; border-bottom: 1px solid var(--bdr); margin-bottom: 6px;
+}
+
+.map-row {
+  display: flex; align-items: baseline; gap: 8px;
+  padding: 4px 8px; border-radius: 4px;
+  font-family: var(--mono); font-size: 10px;
+  border-bottom: 1px solid rgba(46,51,80,.6);
+}
 .map-row:last-child { border-bottom: none; }
 .map-row:hover { background: var(--sur2); }
-.map-r { color:var(--acc); background:rgba(232,74,32,.08); padding:2px 6px; border-radius:3px; white-space:nowrap; }
-.map-a { color:var(--mut); font-size:10px; }
-.map-u { color:var(--pur); background:rgba(156,111,222,.08); padding:2px 6px; border-radius:3px; }
-.map-x { color:var(--red); background:rgba(231,76,60,.08); padding:2px 6px; border-radius:3px; }
+.map-r { color: var(--acc); background: rgba(232,74,32,.08); padding: 1px 5px; border-radius: 3px; white-space: nowrap; flex-shrink: 0; }
+.map-a { color: var(--mut); font-size: 9px; flex-shrink: 0; }
+.map-u { color: var(--pur); background: rgba(156,111,222,.08); padding: 1px 5px; border-radius: 3px; }
+.map-x { color: var(--red); background: rgba(231,76,60,.08); padding: 1px 5px; border-radius: 3px; }
+.map-w { color: var(--amb); background: rgba(245,166,35,.08); padding: 1px 5px; border-radius: 3px; }
 
-.section-hdr { font-size:10px; font-weight:700; color:var(--mut); text-transform:uppercase; letter-spacing:.1em; padding:8px 0 4px; margin-top:8px; border-bottom:1px solid var(--bdr); margin-bottom:4px; }
-.hist-row { display:flex; align-items:center; gap:10px; padding:8px 10px; border-radius:6px; border:1px solid var(--bdr); margin-bottom:6px; background:var(--sur); font-size:11px; }
+.map-section {
+  border: 1px solid var(--bdr); border-radius: 6px; overflow: hidden; margin-bottom: 12px;
+}
+.map-section-hdr {
+  font-size: 9px; font-weight: 700; color: var(--mut);
+  text-transform: uppercase; letter-spacing: .1em;
+  padding: 6px 10px; background: var(--sur);
+  border-bottom: 1px solid var(--bdr);
+}
+
+.limit-box {
+  border: 1px solid rgba(245,166,35,.3); border-radius: 8px;
+  background: rgba(245,166,35,.05); padding: 12px 16px; margin-bottom: 10px;
+}
+.limit-box h4 { font-size: 11px; font-weight: 700; color: var(--amb); margin-bottom: 8px; text-transform: uppercase; letter-spacing: .06em; }
+.limit-box ul { margin: 0; padding-left: 16px; }
+.limit-box li { font-size: 11px; color: var(--txt); line-height: 1.8; font-family: var(--sans); }
+.limit-box li span { color: var(--mut); font-family: var(--mono); font-size: 10px; }
+
+.cant-box {
+  border: 1px solid rgba(231,76,60,.3); border-radius: 8px;
+  background: rgba(231,76,60,.04); padding: 12px 16px; margin-bottom: 10px;
+}
+.cant-box h4 { font-size: 11px; font-weight: 700; color: var(--red); margin-bottom: 8px; text-transform: uppercase; letter-spacing: .06em; }
+.cant-box ul { margin: 0; padding-left: 16px; }
+.cant-box li { font-size: 11px; color: var(--txt); line-height: 1.8; }
+.cant-box li code { font-family: var(--mono); font-size: 10px; color: var(--mut); background: var(--sur2); padding: 1px 4px; border-radius: 3px; }
+
+.hist-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 10px; border-radius: 6px;
+  border: 1px solid var(--bdr); margin-bottom: 5px;
+  background: var(--sur); font-size: 11px;
+}
 .hist-row:hover { background: var(--sur2); }
-.hist-ts { color:var(--mut); font-size:10px; font-family:var(--mono); min-width:130px; }
-.hist-src { color:var(--acc); font-weight:600; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.hist-path { color:var(--pur); font-family:var(--mono); font-size:10px; }
+.hist-ts { color: var(--mut); font-size: 10px; font-family: var(--mono); min-width: 130px; }
+.hist-src { color: var(--acc); font-weight: 600; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hist-path { color: var(--pur); font-family: var(--mono); font-size: 10px; }
+
+.fi-row {
+  display: flex; align-items: center; gap: 7px;
+  padding: 6px 8px; border-radius: 5px; font-size: 11px;
+  border: 1px solid transparent; margin-bottom: 2px;
+  cursor: default;
+}
+.fi-row:hover { background: var(--sur2); }
+.fi-icon {
+  width: 20px; height: 20px; border-radius: 3px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 8px; font-weight: 700; flex-shrink: 0;
+  background: rgba(232,74,32,.15); color: var(--acc);
+}
+.fi-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--txt); }
 </style>
 """, unsafe_allow_html=True)
 
@@ -147,10 +283,11 @@ for key, default in {
     "translated_sql": [],
     "validation_results": None,
     "translation_stats": None,
-    "previous_sample": "-- Select a sample --",
     "previous_uploaded_file": None,
     "load_status": None,
     "source_name": "",
+    "last_output_path": "",
+    "loaded_files": [],   # list of {name, content}
 }.items():
     if key not in st.session_state:
         st.session_state[key] = default
@@ -163,164 +300,264 @@ def clear_outputs():
     st.session_state.translation_stats = None
 
 
-def get_samples_directory():
-    for base in [Path(__file__).parent.resolve(), Path.cwd(),
-                 Path(os.path.dirname(os.path.abspath(__file__))).resolve()]:
+def get_samples_dir():
+    for base in [Path(__file__).parent.resolve(), Path.cwd()]:
         d = base / "samples"
         if d.exists():
             return d
     return None
 
 
-def get_output_directory():
+def get_output_dir():
     out = Path(__file__).parent.resolve() / "output"
     out.mkdir(exist_ok=True)
     return out
 
 
-def save_translation(sql_content: str, source_name: str) -> Path:
-    out_dir = get_output_directory()
+def get_input_dir():
+    inp = Path(__file__).parent.resolve() / "input"
+    inp.mkdir(exist_ok=True)
+    return inp
+
+
+def save_input(json_str: str, source_name: str, is_sample: bool = False) -> str:
+    """Save input JSON to input/ dir. If it's a sample, just return the samples/ path."""
+    if is_sample:
+        samples_dir = get_samples_dir()
+        if samples_dir:
+            p = samples_dir / source_name
+            if p.exists():
+                return str(p)
+    inp_dir = get_input_dir()
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     slug = source_name.replace(".json", "").replace(" ", "_")[:40] if source_name else "upload"
-    fname = f"uc_{slug}_{ts}.sql"
-    path = out_dir / fname
+    path = inp_dir / f"input_{slug}_{ts}.json"
+    path.write_text(json_str, encoding="utf-8")
+    return str(path)
+
+
+def save_translation(sql_content: str, source_name: str) -> Path:
+    out_dir = get_output_dir()
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    slug = source_name.replace(".json", "").replace(" ", "_")[:40] if source_name else "upload"
+    path = out_dir / f"uc_{slug}_{ts}.sql"
     path.write_text(sql_content, encoding="utf-8")
     return path
 
 
 def load_history():
-    hist_path = get_output_directory() / "history.json"
-    if hist_path.exists():
+    p = get_output_dir() / "history.json"
+    if p.exists():
         try:
-            return json.loads(hist_path.read_text())
+            return json.loads(p.read_text())
         except Exception:
             return []
     return []
 
 
 def append_history(entry: dict):
-    hist_path = get_output_directory() / "history.json"
+    p = get_output_dir() / "history.json"
     history = load_history()
     history.insert(0, entry)
-    history = history[:200]  # keep last 200
-    hist_path.write_text(json.dumps(history, indent=2), encoding="utf-8")
+    p.write_text(json.dumps(history[:200], indent=2), encoding="utf-8")
 
 
-# ── Header ─────────────────────────────────────────────────────────────────────
+def run_translation(json_str: str, source_name: str):
+    data = json.loads(json_str)
+    parser = RangerPolicyParser()
+    parser.parse_json(data)
+    config = TranslationConfig(catalog="main", apply_grants=True)
+    translator = EnhancedPolicyTranslator(config)
+    if "tagDefinitions" in data and "resourceTags" in data:
+        translator.set_tag_metadata(data["tagDefinitions"], data["resourceTags"])
+    uc_policies = translator.translate_all(parser.policies)
+    sql_stmts = [s for up in uc_policies for s in up.sql_statements]
+    translatable = sum(1 for u in uc_policies if u.policy_type != "NOT_TRANSLATABLE")
+    not_trans    = sum(1 for u in uc_policies if u.policy_type == "NOT_TRANSLATABLE")
+    return parser, translator, sql_stmts, translatable, not_trans
+
+
+def format_sql(stmts):
+    parts = []
+    for i, stmt in enumerate(stmts, 1):
+        parts.append(
+            f"-- ============================================================\n"
+            f"-- Statement {i} of {len(stmts)}\n"
+            f"-- ============================================================\n"
+            f"{stmt.strip()}"
+        )
+    return "\n\n".join(parts)
+
+
+# ── App header ─────────────────────────────────────────────────────────────────
 st.markdown("""
-<div style="display:flex;align-items:center;gap:12px;padding:10px 4px 14px;border-bottom:1px solid #2e3350;margin-bottom:12px">
-  <span style="font-size:14px;font-weight:700;letter-spacing:.07em;color:#e84a20;text-transform:uppercase;font-family:'Inter',sans-serif">
-    RANGER <span style="color:#e8eaf0">→</span> UC
-  </span>
-  <span class="badge-ranger">Apache Ranger</span>
-  <span style="color:#7a8099;font-size:12px">→</span>
-  <span class="badge-uc">Unity Catalog</span>
-  <span style="margin-left:auto;font-size:10px;color:#7a8099;font-family:'JetBrains Mono',monospace">v2.1</span>
+<div class="app-header">
+  <div class="logo">Ranger <span>→ Unity Catalog</span></div>
+  <span class="hbadge">Databricks Practice</span>
 </div>
 """, unsafe_allow_html=True)
 
-# ── Main tabs ──────────────────────────────────────────────────────────────────
-tab_trans, tab_map, tab_hist = st.tabs(["🔄 Translator", "📊 Migration Map", "📜 History"])
+# ── Sidebar ────────────────────────────────────────────────────────────────────
+with st.sidebar:
+    st.markdown('<div class="slbl">Upload policy</div>', unsafe_allow_html=True)
+    uploaded_file = st.file_uploader(
+        "Click or drag JSON file", type=["json"],
+        label_visibility="collapsed", key="file_uploader"
+    )
 
+    cur_file_id = uploaded_file.name if uploaded_file else None
+    if cur_file_id != st.session_state.previous_uploaded_file:
+        clear_outputs()
+        st.session_state.previous_uploaded_file = cur_file_id
+        if uploaded_file:
+            try:
+                content = uploaded_file.read().decode("utf-8")
+                st.session_state.current_json = content
+                st.session_state.source_name = uploaded_file.name
+                # Add to loaded files list
+                names = [f["name"] for f in st.session_state.loaded_files]
+                if uploaded_file.name not in names:
+                    st.session_state.loaded_files.append({"name": uploaded_file.name, "content": content})
+                st.session_state.load_status = ("success", f"Loaded {uploaded_file.name}")
+            except Exception as e:
+                st.session_state.load_status = ("error", str(e))
 
-# ══════════════════════════════════════════════════════════════════════════════
-# TAB 1 — TRANSLATOR
-# ══════════════════════════════════════════════════════════════════════════════
-with tab_trans:
-    left_col, right_col = st.columns([2, 3])
-
-    with left_col:
-        st.markdown('<div class="section-hdr">JSON Input</div>', unsafe_allow_html=True)
-
-        if st.session_state.load_status:
-            status_type, status_msg = st.session_state.load_status
-            if status_type == "success":
-                st.success(status_msg)
-            elif status_type == "error":
-                st.error(status_msg)
-            elif status_type == "warning":
-                st.warning(status_msg)
-            st.session_state.load_status = None
-
-        inp_tab1, inp_tab2, inp_tab3 = st.tabs(["📁 Upload", "✏️ Paste", "📋 Sample"])
-
-        with inp_tab1:
-            uploaded_file = st.file_uploader("Upload Ranger policy JSON", type=["json"], key="file_uploader")
-            current_file_id = uploaded_file.name if uploaded_file is not None else None
-            if current_file_id != st.session_state.previous_uploaded_file:
+    st.markdown('<div class="slbl" style="padding-top:6px">Sample policies</div>', unsafe_allow_html=True)
+    samples_dir = get_samples_dir()
+    sample_files = sorted(samples_dir.glob("*.json")) if samples_dir else []
+    sample_names = ["— select sample —"] + [f.name for f in sample_files]
+    selected_sample = st.selectbox("", sample_names, key="sample_sel", label_visibility="collapsed")
+    if st.button("Load sample", key="load_sample_btn", use_container_width=True, type="primary"):
+        if selected_sample != "— select sample —" and samples_dir:
+            try:
+                content = (samples_dir / selected_sample).read_text()
                 clear_outputs()
-                st.session_state.previous_uploaded_file = current_file_id
-            if uploaded_file is not None:
-                try:
-                    content = uploaded_file.read().decode("utf-8")
-                    if content != st.session_state.current_json:
-                        st.session_state.current_json = content
-                        st.session_state.json_display = content
-                        st.session_state.source_name = uploaded_file.name
-                        st.session_state.load_status = ("success", f"Loaded {uploaded_file.name}")
-                        st.rerun()
-                except Exception as e:
-                    st.session_state.load_status = ("error", f"Error: {e}")
+                st.session_state.current_json = content
+                st.session_state.source_name = selected_sample
+                names = [f["name"] for f in st.session_state.loaded_files]
+                if selected_sample not in names:
+                    st.session_state.loaded_files.append({"name": selected_sample, "content": content})
+                st.session_state.load_status = ("success", f"Loaded {selected_sample}")
+                st.rerun()
+            except Exception as e:
+                st.session_state.load_status = ("error", str(e))
 
-        with inp_tab2:
-            pasted = st.text_area("Paste JSON here", height=180,
-                                  placeholder="Paste your Ranger policy JSON here...", key="paste_area")
-            if st.button("Load Pasted JSON", key="load_paste", use_container_width=True):
-                if pasted.strip():
-                    clear_outputs()
-                    st.session_state.current_json = pasted
-                    st.session_state.json_display = pasted
-                    st.session_state.source_name = "pasted_input"
-                    st.session_state.load_status = ("success", "JSON loaded from paste")
-                    st.rerun()
-                else:
-                    st.session_state.load_status = ("warning", "Please paste JSON content first")
+    if st.session_state.loaded_files:
+        st.markdown('<div class="slbl" style="padding-top:6px">Queued files</div>', unsafe_allow_html=True)
+        for f in st.session_state.loaded_files[-8:]:
+            is_active = f["name"] == st.session_state.source_name
+            border = f"border-color: var(--bdr); background: var(--sur2);" if is_active else ""
+            st.markdown(
+                f'<div class="fi-row" style="{border}">'
+                f'<div class="fi-icon">RG</div>'
+                f'<div class="fi-name" title="{f["name"]}">{f["name"]}</div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+        if st.button("Clear list", key="clear_files", use_container_width=True):
+            st.session_state.loaded_files = []
+            st.rerun()
+    else:
+        st.markdown(
+            '<div style="font-size:11px;color:var(--mut);text-align:center;padding:14px 10px">No files loaded</div>',
+            unsafe_allow_html=True,
+        )
 
-        with inp_tab3:
-            samples_dir = get_samples_directory()
-            if samples_dir and samples_dir.exists():
-                sample_files = sorted(samples_dir.glob("*.json"))
-                sample_names = ["-- Select a sample --"] + [f.name for f in sample_files]
-                selected = st.selectbox("Choose a sample policy", sample_names, key="sample_selector")
-                if st.button("Load Sample", key="load_sample_btn", use_container_width=True, type="primary"):
-                    if selected != "-- Select a sample --":
-                        try:
-                            content = (samples_dir / selected).read_text()
-                            clear_outputs()
-                            st.session_state.current_json = content
-                            st.session_state.json_display = content
-                            st.session_state.source_name = selected
-                            st.session_state.load_status = ("success", f"Loaded {selected}")
-                            st.rerun()
-                        except Exception as e:
-                            st.session_state.load_status = ("error", f"Error: {e}")
-            else:
-                st.warning("samples/ directory not found")
+    st.markdown("<hr>", unsafe_allow_html=True)
 
-        st.markdown('<div class="section-hdr" style="margin-top:12px">Current JSON</div>', unsafe_allow_html=True)
-        json_display = st.text_area("JSON Content", value=st.session_state.current_json,
-                                    height=380, key="json_display",
-                                    label_visibility="collapsed",
-                                    placeholder="JSON will appear here...")
-        if json_display != st.session_state.current_json:
+    # Paste shortcut in sidebar
+    st.markdown('<div class="slbl">Or paste JSON</div>', unsafe_allow_html=True)
+    pasted = st.text_area("", height=80, placeholder="Paste JSON here...", key="paste_area", label_visibility="collapsed")
+    if st.button("Load pasted JSON", key="load_paste", use_container_width=True):
+        if pasted.strip():
+            try:
+                json.loads(pasted)  # validate
+                clear_outputs()
+                st.session_state.current_json = pasted
+                st.session_state.source_name = "pasted_input"
+                st.session_state.load_status = ("success", "JSON loaded from paste")
+                st.rerun()
+            except json.JSONDecodeError as e:
+                st.session_state.load_status = ("error", f"Invalid JSON: {e}")
+        else:
+            st.session_state.load_status = ("warning", "Nothing pasted")
+
+
+# ── Main tabs ──────────────────────────────────────────────────────────────────
+tab_conv, tab_map, tab_hist = st.tabs(["Converter", "Mapping", "History"])
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB 1 — CONVERTER
+# ══════════════════════════════════════════════════════════════════════════════
+with tab_conv:
+    # Status from sidebar actions
+    if st.session_state.load_status:
+        status_type, status_msg = st.session_state.load_status
+        if status_type == "success":
+            st.success(status_msg)
+        elif status_type == "error":
+            st.error(status_msg)
+        elif status_type == "warning":
+            st.warning(status_msg)
+        st.session_state.load_status = None
+
+    left_col, right_col = st.columns([1, 1], gap="small")
+
+    # ── Left pane: Ranger JSON input ──
+    with left_col:
+        st.markdown("""
+        <div class="pane-hdr">
+          <span>Ranger policy input</span>
+          <span class="pbadge pb-r">RANGER</span>
+        </div>
+        """, unsafe_allow_html=True)
+
+        json_val = st.text_area(
+            "", value=st.session_state.current_json,
+            height=520, key="json_editor",
+            label_visibility="collapsed",
+            placeholder="Paste Ranger policy JSON here, or load from sidebar...",
+        )
+        if json_val != st.session_state.current_json:
             clear_outputs()
-            st.session_state.current_json = json_display
+            st.session_state.current_json = json_val
 
+        st.markdown(
+            f'<div class="bar"><div class="dot dot-{"ok" if st.session_state.current_json.strip() else "err"}"></div>'
+            f'<span>{len(st.session_state.current_json)} chars</span>'
+            f'{"&nbsp;&nbsp;<span class=\'badge badge-r\'>" + st.session_state.source_name + "</span>" if st.session_state.source_name else ""}'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+    # ── Right pane: UC SQL output ──
     with right_col:
-        st.markdown('<div class="section-hdr">Actions & SQL Output</div>', unsafe_allow_html=True)
+        st.markdown("""
+        <div class="pane-hdr">
+          <span>Unity Catalog SQL output</span>
+          <span class="pbadge pb-u">UNITY CATALOG</span>
+        </div>
+        """, unsafe_allow_html=True)
 
-        btn_col1, btn_col2 = st.columns(2)
-        with btn_col1:
-            validate_clicked = st.button("✅ Validate", use_container_width=True, type="secondary")
-        with btn_col2:
-            translate_clicked = st.button("🔄 Translate", use_container_width=True, type="primary")
+        btn_c1, btn_c2, btn_c3 = st.columns([1, 1, 1])
+        with btn_c1:
+            validate_clicked = st.button("✅ Validate", use_container_width=True, key="validate_btn")
+        with btn_c2:
+            translate_clicked = st.button("⚡ Translate", use_container_width=True, type="primary", key="translate_btn")
+        with btn_c3:
+            if st.session_state.translated_sql:
+                sql_content = format_sql(st.session_state.translated_sql)
+                st.download_button(
+                    "📥 Download", data=sql_content,
+                    file_name=f"uc_{datetime.now().strftime('%Y%m%d_%H%M%S')}.sql",
+                    mime="text/plain", use_container_width=True, key="dl_btn",
+                )
 
-        st.markdown("<hr style='margin:10px 0'>", unsafe_allow_html=True)
-
-        # ── Validate ──
+        # Validate
         if validate_clicked:
             if not st.session_state.current_json.strip():
-                st.error("No JSON provided")
+                st.error("No JSON loaded")
             else:
                 with st.spinner("Validating..."):
                     try:
@@ -330,62 +567,58 @@ with tab_trans:
                             "valid": result.is_valid,
                             "errors": result.errors,
                             "warnings": result.warnings,
+                            "policies": len(result.policies),
                         }
-                        if result.is_valid:
-                            st.success(f"Validation passed — {len(result.policies)} policies found")
-                            if result.warnings:
-                                with st.expander(f"⚠ {len(result.warnings)} warnings"):
-                                    for w in result.warnings:
-                                        st.warning(w)
-                        else:
-                            st.error("Validation failed")
-                            for e in result.errors:
-                                st.error(e)
                     except json.JSONDecodeError as e:
                         st.error(f"Invalid JSON: {e}")
                     except Exception as e:
                         st.error(f"Error: {e}")
 
-        # ── Translate ──
+        if st.session_state.validation_results:
+            vr = st.session_state.validation_results
+            if vr["valid"]:
+                st.success(f"Validation passed — {vr['policies']} policies found")
+                if vr["warnings"]:
+                    with st.expander(f"⚠ {len(vr['warnings'])} warnings"):
+                        for w in vr["warnings"]:
+                            st.warning(w)
+            else:
+                st.error("Validation failed")
+                for e in vr["errors"]:
+                    st.error(e)
+
+        # Translate
         if translate_clicked:
             if not st.session_state.current_json.strip():
-                st.error("No JSON provided")
+                st.error("No JSON loaded")
             else:
                 with st.spinner("Translating..."):
                     try:
-                        data = json.loads(st.session_state.current_json)
-                        parser = RangerPolicyParser()
-                        parser.parse_json(data)
-
-                        config = TranslationConfig(catalog="main", apply_grants=True)
-                        translator = EnhancedPolicyTranslator(config)
-
-                        if 'tagDefinitions' in data and 'resourceTags' in data:
-                            translator.set_tag_metadata(data['tagDefinitions'], data['resourceTags'])
-
-                        uc_policies = translator.translate_all(parser.policies)
-                        sql_stmts = [s for up in uc_policies for s in up.sql_statements]
-                        translatable  = sum(1 for u in uc_policies if u.policy_type != "NOT_TRANSLATABLE")
-                        not_trans     = sum(1 for u in uc_policies if u.policy_type == "NOT_TRANSLATABLE")
-
+                        parser, translator, sql_stmts, translatable, not_trans = run_translation(
+                            st.session_state.current_json, st.session_state.source_name
+                        )
                         st.session_state.translated_sql = sql_stmts
                         st.session_state.translation_stats = {
                             "policies": len(parser.policies),
                             "statements": len(sql_stmts),
                             "translatable": translatable,
                             "not_translatable": not_trans,
+                            "warnings": len(translator.errors),
                         }
-
-                        # Save to output folder & history
                         if sql_stmts:
-                            formatted = []
-                            for i, stmt in enumerate(sql_stmts, 1):
-                                sep = (f"-- ============================================================\n"
-                                       f"-- Statement {i} of {len(sql_stmts)}\n"
-                                       f"-- ============================================================")
-                                formatted.append(f"{sep}\n{stmt.strip()}")
-                            sql_content = "\n\n".join(formatted)
-                            out_path = save_translation(sql_content, st.session_state.source_name)
+                            out_path = save_translation(format_sql(sql_stmts), st.session_state.source_name)
+                            st.session_state.last_output_path = str(out_path)
+                            # Save input (skip copy for sample files — point directly)
+                            samples_dir = get_samples_dir()
+                            is_sample = bool(
+                                samples_dir and st.session_state.source_name
+                                and (samples_dir / st.session_state.source_name).exists()
+                            )
+                            inp_path = save_input(
+                                st.session_state.current_json,
+                                st.session_state.source_name,
+                                is_sample=is_sample,
+                            )
                             append_history({
                                 "timestamp": datetime.now().isoformat(),
                                 "source": st.session_state.source_name or "unknown",
@@ -394,212 +627,267 @@ with tab_trans:
                                 "translatable": translatable,
                                 "not_translatable": not_trans,
                                 "warnings": len(translator.errors),
+                                "input_path": inp_path,
                                 "output_path": str(out_path),
                             })
-                            st.session_state.last_output_path = str(out_path)
-
                         if translator.errors:
                             with st.expander(f"⚠ {len(translator.errors)} translation notes"):
                                 for e in translator.errors:
-                                    st.markdown(f"<span style='font-size:11px;color:#f5a623'>• {e}</span>",
-                                                unsafe_allow_html=True)
-
-                        st.success(f"Translation complete — {len(sql_stmts)} SQL statements generated")
-
+                                    st.markdown(f'<span style="font-size:11px;color:var(--amb)">• {e}</span>', unsafe_allow_html=True)
+                        st.success(f"Translation complete — {len(sql_stmts)} SQL statements")
                     except json.JSONDecodeError as e:
                         st.error(f"Invalid JSON: {e}")
                     except Exception as e:
                         st.error(f"Error: {e}")
                         import traceback
-                        with st.expander("Details"):
+                        with st.expander("Stack trace"):
                             st.code(traceback.format_exc())
 
-        # ── Status row ──
-        if st.session_state.validation_results:
-            vr = st.session_state.validation_results
-            if vr["valid"]:
-                st.markdown('<span class="badge-ok">✓ Validation Passed</span>', unsafe_allow_html=True)
-            else:
-                st.markdown('<span class="badge-err">✗ Validation Failed</span>', unsafe_allow_html=True)
-
+        # Stats row
         if st.session_state.translation_stats:
             stats = st.session_state.translation_stats
-            c1, c2, c3, c4 = st.columns(4)
-            c1.metric("Policies", stats["policies"])
-            c2.metric("SQL Stmts", stats["statements"])
-            c3.metric("Translated", stats.get("translatable", 0))
-            c4.metric("Skipped", stats.get("not_translatable", 0))
-
-            if hasattr(st.session_state, "last_output_path") and st.session_state.get("last_output_path"):
+            sc1, sc2, sc3, sc4 = st.columns(4)
+            sc1.metric("Policies", stats["policies"])
+            sc2.metric("SQL Stmts", stats["statements"])
+            sc3.metric("Translated", stats["translatable"])
+            sc4.metric("Skipped", stats["not_translatable"])
+            if st.session_state.last_output_path:
                 st.markdown(
-                    f'<div style="font-size:10px;color:#7a8099;margin:4px 0">📁 Saved to: '
-                    f'<span style="color:#9c6fde;font-family:monospace">{st.session_state.last_output_path}</span></div>',
-                    unsafe_allow_html=True
+                    f'<div style="font-size:10px;color:var(--mut);margin:4px 0">📁 '
+                    f'<span style="color:var(--pur);font-family:var(--mono)">{st.session_state.last_output_path}</span></div>',
+                    unsafe_allow_html=True,
                 )
 
-            st.markdown("<hr style='margin:8px 0'>", unsafe_allow_html=True)
-
-        # ── SQL output ──
+        # SQL output area
         if st.session_state.translated_sql:
-            formatted = []
-            for i, stmt in enumerate(st.session_state.translated_sql, 1):
-                sep = (f"-- ============================================================\n"
-                       f"-- Statement {i} of {len(st.session_state.translated_sql)}\n"
-                       f"-- ============================================================")
-                formatted.append(f"{sep}\n{stmt.strip()}")
-            sql_content = "\n\n".join(formatted)
-
-            st.download_button(
-                "📥 Download SQL",
-                data=sql_content,
-                file_name=f"uc_policies_{datetime.now().strftime('%Y%m%d_%H%M%S')}.sql",
-                mime="text/plain",
-                key="download_sql",
-            )
+            sql_content = format_sql(st.session_state.translated_sql)
             st.code(sql_content, language="sql", line_numbers=True)
         else:
+            dot_state = "dot-warn" if st.session_state.current_json.strip() else "dot-err"
+            ready_msg = "Click <b>Translate</b> to generate SQL" if st.session_state.current_json.strip() else "Load a policy from the sidebar first"
             st.markdown(
-                '<div style="color:#7a8099;font-size:12px;padding:20px 0">Click <b>Translate</b> to generate SQL</div>',
-                unsafe_allow_html=True
+                f'<div class="bar" style="border-radius:6px;border:1px solid var(--bdr);margin-top:4px">'
+                f'<div class="dot {dot_state}"></div>'
+                f'<span style="color:var(--mut)">{ready_msg}</span></div>',
+                unsafe_allow_html=True,
             )
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# TAB 2 — MIGRATION MAP
+# TAB 2 — MAPPING REFERENCE
 # ══════════════════════════════════════════════════════════════════════════════
 with tab_map:
-    mc1, mc2 = st.columns(2)
+    st.markdown("""
+    <div style="padding:16px 0 8px">
+      <span style="font-size:16px;font-weight:500;color:var(--txt)">Ranger → Unity Catalog mapping reference</span>
+      <span style="font-size:11px;color:var(--mut);margin-left:12px">all implemented translations</span>
+    </div>
+    """, unsafe_allow_html=True)
+
+    mc1, mc2 = st.columns(2, gap="medium")
+
+    def map_section(title, rows, col_cls_fn=None):
+        html = f'<div class="map-section"><div class="map-section-hdr">{title}</div>'
+        for row in rows:
+            ranger, arrow, uc = row[0], row[1], row[2]
+            cls = col_cls_fn(row) if col_cls_fn else ("map-x" if "✗" in uc or "cannot" in uc.lower() else "map-u")
+            html += f'<div class="map-row"><span class="map-r">{ranger}</span><span class="map-a">{arrow}</span><span class="{cls}">{uc}</span></div>'
+        html += '</div>'
+        return html
 
     with mc1:
-        # ── Resource type mapping ──
-        st.markdown('<div class="section-hdr">Resource Type Mapping</div>', unsafe_allow_html=True)
-        resource_map = [
-            ("database", "→", "SCHEMA catalog.schema", "ok"),
-            ("table", "→", "TABLE catalog.schema.table", "ok"),
-            ("column", "→", "COLUMN (via masking function)", "ok"),
-            ("udf", "→", "FUNCTION catalog.schema.func", "ok"),
-            ("path (HDFS/S3)", "→", "EXTERNAL LOCATION", "ok"),
-            ("url", "→", "EXTERNAL LOCATION", "ok"),
-            ("tag", "→", "Tag-based GRANT (placeholder)", "warn"),
-            ("topic (Kafka)", "✗", "No UC equivalent", "err"),
-            ("cluster (Kafka)", "✗", "No UC equivalent", "err"),
-            ("consumergroup", "✗", "No UC equivalent", "err"),
-            ("delegationtoken", "✗", "No UC equivalent", "err"),
-            ("entity (Atlas)", "✗", "No UC equivalent", "err"),
-            ("entity-type", "✗", "No UC equivalent", "err"),
-            ("entity-classification", "✗", "No UC equivalent", "err"),
-            ("hiveservice", "✗", "No UC equivalent", "err"),
+        # Resource types
+        st.markdown('<div class="section-hdr">Resource type mapping</div>', unsafe_allow_html=True)
+        res_rows = [
+            ("database (db only)",   "→", "SCHEMA main.{db}",            "ok"),
+            ("database + table=*",   "→", "SCHEMA main.{db}",            "ok"),
+            ("database.*.*",         "→", "CATALOG main",                "ok"),
+            ("table",                "→", "TABLE main.{db}.{table}",     "ok"),
+            ("column",               "→", "via mask/filter function",    "ok"),
+            ("udf",                  "→", "FUNCTION main.{db}.{udf}",    "ok"),
+            ("path (HDFS/ADLS/S3)",  "→", "EXTERNAL LOCATION (placeholder)", "warn"),
+            ("url (Hive URL policy)","→", "EXTERNAL LOCATION (placeholder)", "warn"),
+            ("tag",                  "→", "Tag-based GRANT (placeholder)","warn"),
+            ("topic (Kafka)",        "✗", "No UC equivalent",            "err"),
+            ("cluster (Kafka)",      "✗", "No UC equivalent",            "err"),
+            ("consumergroup (Kafka)","✗", "No UC equivalent",            "err"),
+            ("delegationtoken",      "✗", "No UC equivalent",            "err"),
+            ("entity (Atlas)",       "✗", "No UC equivalent",            "err"),
+            ("entity-type (Atlas)",  "✗", "No UC equivalent",            "err"),
+            ("hiveservice",          "✗", "No UC equivalent",            "err"),
+            ("queue (YARN)",         "✗", "No UC equivalent",            "err"),
+            ("column-family (HBase)","✗", "No UC equivalent",            "err"),
         ]
-        rows_html = ""
-        for ranger, arrow, uc, status in resource_map:
-            uc_cls = "map-u" if status == "ok" else "badge-warn" if status == "warn" else "map-x"
-            rows_html += (
-                f'<div class="map-row">'
-                f'<span class="map-r">{ranger}</span>'
-                f'<span class="map-a">{arrow}</span>'
-                f'<span class="{uc_cls}">{uc}</span>'
-                f'</div>'
-            )
-        st.markdown(f'<div style="border:1px solid #2e3350;border-radius:6px;overflow:hidden">{rows_html}</div>',
-                    unsafe_allow_html=True)
+        def res_cls(row): return {"ok":"map-u","warn":"map-w","err":"map-x"}[row[3]]
+        st.markdown(map_section("", res_rows, res_cls), unsafe_allow_html=True)
 
-        # ── Policy type mapping ──
-        st.markdown('<div class="section-hdr" style="margin-top:16px">Policy Type Mapping</div>',
-                    unsafe_allow_html=True)
-        policy_map = [
-            ("ACCESS (policyType=0)", "GRANT privilege ON resource TO principal"),
-            ("COLUMN_MASK (policyType=1)", "CREATE FUNCTION + ALTER TABLE SET MASK"),
-            ("ROW_FILTER (policyType=2)", "CREATE FUNCTION + ALTER TABLE SET ROW FILTER"),
-            ("TAG-based ACCESS", "GRANT on tag placeholder (replace with table)"),
-            ("denyPolicyItems", "Noted in output — UC uses DENY not supported yet"),
-            ("allowExceptions", "Noted in output — exception grants included"),
-            ("policyDeltas (incremental)", "Delta policies extracted and translated"),
-            ("testCases format", "servicePolicies extracted per test case"),
-            ("securityZones", "Zone boundaries noted — not translatable to UC"),
+        # Policy type mapping
+        st.markdown('<div class="section-hdr" style="margin-top:14px">Policy type mapping</div>', unsafe_allow_html=True)
+        pol_rows = [
+            ("ACCESS  (policyType=0)", "→", "GRANT privilege ON resource TO principal"),
+            ("COLUMN_MASK (policyType=1)", "→", "CREATE FUNCTION + ALTER TABLE SET MASK"),
+            ("ROW_FILTER (policyType=2)", "→", "CREATE FUNCTION + ALTER TABLE SET ROW FILTER"),
+            ("TAG-based ACCESS", "→", "GRANT on table matching tag (placeholder)"),
+            ("TAG-based MASK", "→", "CREATE FUNCTION on table matching tag"),
+            ("policyDeltas format", "→", "Delta policies extracted and translated"),
+            ("testCases format", "→", "servicePolicies extracted per test case"),
+            ("securityZones", "~", "Zone names noted in output — boundaries not translatable"),
         ]
-        rows_html = ""
-        for ranger, uc in policy_map:
-            rows_html += (
-                f'<div class="map-row">'
-                f'<span class="map-r">{ranger}</span>'
-                f'<span class="map-a">→</span>'
-                f'<span class="map-u">{uc}</span>'
-                f'</div>'
-            )
-        st.markdown(f'<div style="border:1px solid #2e3350;border-radius:6px;overflow:hidden">{rows_html}</div>',
-                    unsafe_allow_html=True)
+        html = '<div class="map-section">'
+        for ranger, arrow, uc in pol_rows:
+            cls = "map-w" if arrow == "~" else "map-u"
+            html += f'<div class="map-row"><span class="map-r">{ranger}</span><span class="map-a">{arrow}</span><span class="{cls}">{uc}</span></div>'
+        html += '</div>'
+        st.markdown(html, unsafe_allow_html=True)
+
+        # Principal mapping
+        st.markdown('<div class="section-hdr" style="margin-top:14px">Principal mapping</div>', unsafe_allow_html=True)
+        prin_rows = [
+            ("users: [alice, bob]", "→", "GRANT ... TO alice; GRANT ... TO bob", "ok"),
+            ("groups: [data_eng]", "→", "GRANT ... TO data_eng", "ok"),
+            ("roles: [analyst_role]", "→", "GRANT ... TO analyst_role (role)", "ok"),
+            ("public / everyone", "~", "-- TODO: assign to account-level group", "warn"),
+            ("service account", "→", "GRANT ... TO `svc_account` (service principal)", "ok"),
+        ]
+        html = '<div class="map-section">'
+        for ranger, arrow, uc, status in prin_rows:
+            cls = {"ok":"map-u","warn":"map-w","err":"map-x"}[status]
+            html += f'<div class="map-row"><span class="map-r">{ranger}</span><span class="map-a">{arrow}</span><span class="{cls}">{uc}</span></div>'
+        html += '</div>'
+        st.markdown(html, unsafe_allow_html=True)
 
     with mc2:
-        # ── Privilege mapping ──
-        st.markdown('<div class="section-hdr">Privilege Mapping</div>', unsafe_allow_html=True)
-        priv_map = [
-            ("select", "SELECT"),
-            ("read", "SELECT"),
-            ("update", "MODIFY"),
-            ("write", "MODIFY"),
-            ("create", "CREATE"),
-            ("drop", "DROP"),
-            ("alter", "ALTER"),
-            ("all", "ALL PRIVILEGES"),
-            ("admin", "ALL PRIVILEGES"),
-            ("hive:select", "SELECT (prefix stripped)"),
-            ("hive:update", "MODIFY (prefix stripped)"),
-            ("read (path)", "READ FILES"),
-            ("write (path)", "WRITE FILES"),
-            ("execute (path)", "READ FILES"),
-            ("publish (Kafka)", "✗ Not translatable"),
-            ("consume (Kafka)", "✗ Not translatable"),
-            ("entity-read (Atlas)", "✗ Not translatable"),
+        # Privilege mapping
+        st.markdown('<div class="section-hdr">Privilege mapping</div>', unsafe_allow_html=True)
+        priv_rows = [
+            ("select",              "→", "SELECT",                    "ok"),
+            ("read",                "→", "SELECT",                    "ok"),
+            ("update",              "→", "MODIFY",                    "ok"),
+            ("write",               "→", "MODIFY",                    "ok"),
+            ("create",              "→", "CREATE TABLE / CREATE SCHEMA","ok"),
+            ("drop",                "→", "DROP",                      "ok"),
+            ("alter",               "→", "ALTER",                     "ok"),
+            ("all",                 "→", "ALL PRIVILEGES",            "ok"),
+            ("admin",               "→", "ALL PRIVILEGES",            "ok"),
+            ("hive:select",         "→", "SELECT  (hive: prefix stripped)", "ok"),
+            ("hive:update",         "→", "MODIFY  (hive: prefix stripped)", "ok"),
+            ("hive:all",            "→", "ALL PRIVILEGES",            "ok"),
+            ("read (path resource)","→", "READ FILES",                "ok"),
+            ("write (path resource)","→", "WRITE FILES",              "ok"),
+            ("execute (path)",      "→", "READ FILES  (closest equiv)","warn"),
+            ("execute (udf)",       "→", "EXECUTE ON FUNCTION",       "ok"),
+            ("publish (Kafka)",     "✗", "Not translatable",          "err"),
+            ("consume (Kafka)",     "✗", "Not translatable",          "err"),
+            ("entity-read (Atlas)", "✗", "Not translatable",          "err"),
+            ("index (Hive)",        "~", "No UC equivalent — Delta handles internally","warn"),
+            ("lock (Hive)",         "~", "No UC equivalent",          "warn"),
         ]
-        rows_html = ""
-        for ranger, uc in priv_map:
-            uc_cls = "map-x" if uc.startswith("✗") else "map-u"
-            rows_html += (
-                f'<div class="map-row">'
-                f'<span class="map-r">{ranger}</span>'
-                f'<span class="map-a">→</span>'
-                f'<span class="{uc_cls}">{uc}</span>'
-                f'</div>'
-            )
-        st.markdown(f'<div style="border:1px solid #2e3350;border-radius:6px;overflow:hidden">{rows_html}</div>',
-                    unsafe_allow_html=True)
+        html = '<div class="map-section">'
+        for ranger, arrow, uc, status in priv_rows:
+            cls = {"ok":"map-u","warn":"map-w","err":"map-x"}[status]
+            html += f'<div class="map-row"><span class="map-r">{ranger}</span><span class="map-a">{arrow}</span><span class="{cls}">{uc}</span></div>'
+        html += '</div>'
+        st.markdown(html, unsafe_allow_html=True)
 
-        # ── Mask type mapping ──
-        st.markdown('<div class="section-hdr" style="margin-top:16px">Column Mask Type Mapping</div>',
-                    unsafe_allow_html=True)
-        mask_map = [
-            ("MASK", "'XXXXX'"),
-            ("MASK_SHOW_LAST_4", "CONCAT(REPEAT('X', LEN-4), RIGHT(col,4))"),
-            ("MASK_SHOW_FIRST_4", "CONCAT(LEFT(col,4), REPEAT('X', LEN-4))"),
-            ("MASK_HASH", "SHA2(col, 256)"),
-            ("MASK_NULL", "NULL"),
-            ("MASK_NONE", "col  (no masking — pass-through)"),
-            ("MASK_DATE_SHOW_YEAR", "MAKE_DATE(YEAR(col), 1, 1)"),
-            ("SHUFFLE", "SHA2(col, 256)  (approximation)"),
-            ("NULL", "NULL"),
-            ("CUSTOM", "Custom expression from policy"),
+        # Masking types
+        st.markdown('<div class="section-hdr" style="margin-top:14px">Column mask type mapping</div>', unsafe_allow_html=True)
+        mask_rows = [
+            ("MASK",              "'XXXXX'  (full redact)"),
+            ("MASK_SHOW_LAST_4",  "CONCAT(REPEAT('X', LEN-4), RIGHT(col, 4))"),
+            ("MASK_SHOW_FIRST_4", "CONCAT(LEFT(col, 4), REPEAT('X', LEN-4))"),
+            ("MASK_HASH",         "SHA2(CAST(col AS STRING), 256)"),
+            ("MASK_NULL",         "NULL"),
+            ("MASK_NONE",         "col  (pass-through, no masking)"),
+            ("MASK_DATE_SHOW_YEAR","MAKE_DATE(YEAR(col), 1, 1)"),
+            ("MASK_REDACT",       "'[REDACTED]'"),
+            ("NULL",              "NULL  (alias for MASK_NULL)"),
+            ("SHUFFLE",           "SHA2(col, 256)  (approximation)"),
+            ("CUSTOM",            "Custom conditionExpr from policy"),
         ]
-        rows_html = ""
-        for ranger, uc in mask_map:
-            rows_html += (
-                f'<div class="map-row">'
-                f'<span class="map-r">{ranger}</span>'
-                f'<span class="map-a">→</span>'
-                f'<span class="map-u">{uc}</span>'
-                f'</div>'
-            )
-        st.markdown(f'<div style="border:1px solid #2e3350;border-radius:6px;overflow:hidden">{rows_html}</div>',
-                    unsafe_allow_html=True)
+        html = '<div class="map-section">'
+        for ranger, uc in mask_rows:
+            html += f'<div class="map-row"><span class="map-r">{ranger}</span><span class="map-a">→</span><span class="map-u">{uc}</span></div>'
+        html += '</div>'
+        st.markdown(html, unsafe_allow_html=True)
 
-    # ── Legend ──
-    st.markdown("<hr style='margin:16px 0'>", unsafe_allow_html=True)
+        # HDFS/External Location
+        st.markdown('<div class="section-hdr" style="margin-top:14px">HDFS / External Location mapping</div>', unsafe_allow_html=True)
+        hdfs_rows = [
+            ("read on /path/*",              "GRANT READ FILES ON EXTERNAL LOCATION loc TO grp"),
+            ("write on /path/*",             "GRANT WRITE FILES ON EXTERNAL LOCATION loc TO grp"),
+            ("read+write+execute",           "GRANT READ FILES, WRITE FILES ON EXTERNAL LOCATION loc"),
+            ("all on path",                  "GRANT ALL PRIVILEGES ON EXTERNAL LOCATION loc TO grp"),
+            ("isRecursive: true",            "No change — External Location covers sub-paths"),
+            ("URL-based Hive (hive://...)",  "Treated as path → EXTERNAL LOCATION"),
+        ]
+        html = '<div class="map-section">'
+        for ranger, uc in hdfs_rows:
+            html += f'<div class="map-row"><span class="map-r">{ranger}</span><span class="map-a">→</span><span class="map-u">{uc}</span></div>'
+        html += '</div>'
+        st.markdown(html, unsafe_allow_html=True)
+
+    # ── Limitations / Cautions / Cannot translate ──
+    st.markdown("<hr>", unsafe_allow_html=True)
+    st.markdown('<div style="font-size:14px;font-weight:600;color:var(--txt);margin-bottom:12px">Limitations, cautions &amp; unsupported services</div>', unsafe_allow_html=True)
+
+    lc1, lc2, lc3 = st.columns(3, gap="medium")
+
+    with lc1:
+        st.markdown("""
+        <div class="limit-box">
+          <h4>⚠ Caution areas — output is approximate</h4>
+          <ul>
+            <li><b>denyPolicyItems</b> — noted in SQL output with a <code>-- WARNING: DENY</code> comment but UC has no DENY verb; restructure as allow-only <span>(UC is deny-by-default)</span></li>
+            <li><b>allowExceptions / denyExceptions</b> — exceptions appear in output as individual GRANTs but exception semantics are not fully replicated</li>
+            <li><b>isDenyAllElse: true</b> — UC is already deny-by-default; this flag is noted but requires no extra SQL</li>
+            <li><b>Security zones</b> — zone names appear as comments; zone boundaries have no UC equivalent (permissions apply to the whole metastore)</li>
+            <li><b>Tag-based policies</b> — GRANT/MASK is generated against a <code>&lt;table_placeholder&gt;</code>; you must manually replace it with the actual table that carries the tag</li>
+            <li><b>External Location names</b> — path policies generate <code>your_location_name</code> placeholder; replace with your actual external location</li>
+            <li><b>Catalog name</b> — defaults to <code>main</code>; edit the catalog config if target is different</li>
+          </ul>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with lc2:
+        st.markdown("""
+        <div class="limit-box">
+          <h4>⚠ Features not translated</h4>
+          <ul>
+            <li><b>ip-range conditions</b> — enforce at Databricks workspace IP access list level <span>(Settings → IP Access List)</span></li>
+            <li><b>validity periods</b> — time-bound policies have no UC equivalent; use IAM token expiry or external governance</li>
+            <li><b>row-level conditions on principals</b> (e.g., <code>owner = current_user()</code>) — must be embedded manually in the row-filter function body</li>
+            <li><b>HBase column-family granularity</b> — HBase ACLs operate at column-family level; Delta/UC has no equivalent; migrate to Delta first, then apply table-level GRANTs</li>
+            <li><b>Ranger audit policies</b> — audit configuration is not translatable to UC; UC has its own audit log via system tables</li>
+            <li><b>delegateAdmin</b> — noted in output; no direct UC equivalent (use <code>GRANT WITH GRANT OPTION</code> in newer UC versions)</li>
+          </ul>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with lc3:
+        st.markdown("""
+        <div class="cant-box">
+          <h4>✗ Services that cannot be covered</h4>
+          <ul>
+            <li><b>Apache Kafka</b> — <code>topic</code>, <code>cluster</code>, <code>consumergroup</code>, <code>delegationtoken</code> resources have no Unity Catalog equivalent; Kafka ACLs stay in Ranger or Confluent Platform</li>
+            <li><b>Apache Atlas</b> — <code>entity</code>, <code>entity-type</code>, <code>entity-classification</code>, <code>business-metadata</code> are Atlas governance constructs; use Databricks Unity Catalog tags + lineage instead</li>
+            <li><b>YARN / MapReduce</b> — queue-level policies map to Databricks Cluster Policy + <code>CAN_USE</code> permission, not SQL GRANTs; must be configured in the Databricks workspace UI</li>
+            <li><b>Solr / Elasticsearch</b> — no SQL-based equivalent in UC</li>
+            <li><b>Storm / NiFi</b> — no equivalent in the Databricks ecosystem</li>
+            <li><b>Knox topology policies</b> — gateway-level; handle at network/proxy layer</li>
+            <li><b>Ranger plugins for ADLS/GCS</b> — migrate storage-level ACLs to Azure RBAC or GCS IAM; then add UC External Location grants</li>
+          </ul>
+        </div>
+        """, unsafe_allow_html=True)
+
+    # Legend
     st.markdown(
-        '<span class="badge-ranger">Ranger</span>&nbsp;&nbsp;'
-        '<span class="badge-uc">Unity Catalog</span>&nbsp;&nbsp;'
-        '<span class="badge-ok">Translatable</span>&nbsp;&nbsp;'
-        '<span class="badge-warn">Needs manual mapping</span>&nbsp;&nbsp;'
-        '<span class="badge-err">Not translatable</span>',
-        unsafe_allow_html=True
+        '<div style="margin-top:8px">'
+        '<span class="badge badge-u">✓ Translatable</span>&nbsp;&nbsp;'
+        '<span class="badge badge-w">~ Needs manual mapping</span>&nbsp;&nbsp;'
+        '<span class="badge badge-e">✗ Not translatable</span>&nbsp;&nbsp;'
+        '<span style="font-size:10px;color:var(--mut)">placeholder = replace before running</span>'
+        '</div>',
+        unsafe_allow_html=True,
     )
 
 
@@ -609,23 +897,23 @@ with tab_map:
 with tab_hist:
     history = load_history()
 
-    hdr_col, btn_col = st.columns([3, 1])
-    with hdr_col:
-        st.markdown('<div class="section-hdr">Translation History</div>', unsafe_allow_html=True)
-    with btn_col:
-        if st.button("🗑 Clear History", key="clear_hist", type="secondary"):
-            hist_path = get_output_directory() / "history.json"
-            if hist_path.exists():
-                hist_path.unlink()
+    hdr_c, btn_c = st.columns([3, 1])
+    with hdr_c:
+        st.markdown('<div class="section-hdr" style="padding-top:16px">Translation history</div>', unsafe_allow_html=True)
+    with btn_c:
+        st.markdown("<div style='padding-top:16px'></div>", unsafe_allow_html=True)
+        if st.button("🗑 Clear", key="clear_hist", type="secondary"):
+            p = get_output_dir() / "history.json"
+            if p.exists():
+                p.unlink()
             st.rerun()
 
     if not history:
         st.markdown(
-            '<div style="color:#7a8099;font-size:12px;padding:20px 0">No translations yet — run a translation to see history here.</div>',
-            unsafe_allow_html=True
+            '<div style="color:var(--mut);font-size:12px;padding:20px 0">No translations yet — run a translation to see history here.</div>',
+            unsafe_allow_html=True,
         )
     else:
-        # Summary metrics
         total_policies = sum(h.get("policies", 0) for h in history)
         total_stmts    = sum(h.get("sql_statements", 0) for h in history)
         total_skipped  = sum(h.get("not_translatable", 0) for h in history)
@@ -636,9 +924,8 @@ with tab_hist:
         hc3.metric("Total SQL Stmts", total_stmts)
         hc4.metric("Total Skipped", total_skipped)
 
-        st.markdown("<hr style='margin:10px 0'>", unsafe_allow_html=True)
+        st.markdown("<hr>", unsafe_allow_html=True)
 
-        # History rows
         for entry in history:
             ts_str = entry.get("timestamp", "")
             try:
@@ -646,62 +933,68 @@ with tab_hist:
             except Exception:
                 ts_fmt = ts_str
 
-            source   = entry.get("source", "unknown")
-            policies = entry.get("policies", 0)
-            stmts    = entry.get("sql_statements", 0)
-            skipped  = entry.get("not_translatable", 0)
-            warns    = entry.get("warnings", 0)
-            out_path = entry.get("output_path", "")
-            path_exists = Path(out_path).exists() if out_path else False
+            source    = entry.get("source", "unknown")
+            policies  = entry.get("policies", 0)
+            stmts     = entry.get("sql_statements", 0)
+            skipped   = entry.get("not_translatable", 0)
+            warns     = entry.get("warnings", 0)
+            out_path  = entry.get("output_path", "")
+            inp_path  = entry.get("input_path", "")
+            out_exists = Path(out_path).exists() if out_path else False
+            inp_exists = Path(inp_path).exists() if inp_path else False
 
-            skip_badge = (f'&nbsp;<span class="badge-warn">{skipped} skipped</span>' if skipped else "")
-            warn_badge = (f'&nbsp;<span class="badge-warn">{warns} warns</span>' if warns else "")
-            path_color = "#9c6fde" if path_exists else "#7a8099"
-            path_label = out_path if out_path else "—"
+            skip_badge = f'&nbsp;<span class="badge badge-w">{skipped} skipped</span>' if skipped else ""
+            warn_badge = f'&nbsp;<span class="badge badge-w">{warns} warns</span>' if warns else ""
+            out_fname  = Path(out_path).name if out_path else "—"
+            inp_fname  = Path(inp_path).name if inp_path else "—"
 
             st.markdown(f"""
             <div class="hist-row">
               <span class="hist-ts">{ts_fmt}</span>
               <span class="hist-src">{source}</span>
-              <span class="badge-ok">{policies} policies</span>
-              <span class="badge-uc">{stmts} SQL</span>
+              <span class="badge badge-ok">{policies} policies</span>
+              <span class="badge badge-u">{stmts} SQL</span>
               {skip_badge}{warn_badge}
-              <span style="margin-left:auto;font-size:10px;color:{path_color};font-family:monospace;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{path_label}">
-                {"📄 " + Path(out_path).name if out_path else "—"}
+              <span style="margin-left:auto;display:flex;gap:10px;align-items:center">
+                <span style="font-size:10px;color:{'var(--acc)' if inp_exists else 'var(--mut)'};font-family:var(--mono)" title="{inp_path}">
+                  {"📋 " + inp_fname if inp_fname != "—" else ""}
+                </span>
+                <span style="font-size:10px;color:{'var(--pur)' if out_exists else 'var(--mut)'};font-family:var(--mono)" title="{out_path}">
+                  {"📄 " + out_fname if out_fname != "—" else "—"}
+                </span>
               </span>
             </div>
             """, unsafe_allow_html=True)
 
-            # Show SQL preview if file exists
-            if path_exists and st.button(f"View SQL", key=f"view_{ts_str}"):
-                sql_content = Path(out_path).read_text()
-                with st.expander(f"SQL — {Path(out_path).name}", expanded=True):
-                    st.markdown(
-                        f'<div style="font-size:10px;color:#7a8099;margin-bottom:6px">📁 {out_path}</div>',
-                        unsafe_allow_html=True
-                    )
-                    st.download_button(
-                        "📥 Download",
-                        data=sql_content,
-                        file_name=Path(out_path).name,
-                        mime="text/plain",
-                        key=f"dl_{ts_str}"
-                    )
-                    st.code(sql_content, language="sql", line_numbers=True)
+            # View/download buttons
+            row_key = f"{ts_str}_{source[:8]}"
+            vcols = st.columns([1, 1, 6])
+            with vcols[0]:
+                if inp_exists and st.button("View JSON", key=f"viewjson_{row_key}"):
+                    with st.expander(f"Input JSON — {inp_fname}", expanded=True):
+                        st.markdown(f'<div style="font-size:10px;color:var(--mut);margin-bottom:6px">📋 {inp_path}</div>', unsafe_allow_html=True)
+                        inp_content = Path(inp_path).read_text()
+                        st.download_button("📥 Download JSON", data=inp_content, file_name=inp_fname, mime="application/json", key=f"dljson_{row_key}")
+                        st.code(inp_content, language="json")
+            with vcols[1]:
+                if out_exists and st.button("View SQL", key=f"viewsql_{row_key}"):
+                    sql_content = Path(out_path).read_text()
+                    with st.expander(f"SQL — {out_fname}", expanded=True):
+                        st.markdown(f'<div style="font-size:10px;color:var(--mut);margin-bottom:6px">📄 {out_path}</div>', unsafe_allow_html=True)
+                        st.download_button("📥 Download SQL", data=sql_content, file_name=out_fname, mime="text/plain", key=f"dlsql_{row_key}")
+                        st.code(sql_content, language="sql", line_numbers=True)
 
-        # Full table view
-        with st.expander("📋 Full history as table"):
+        with st.expander("📋 Full table view"):
             df = pd.DataFrame(history)
             if not df.empty:
-                cols = ["timestamp", "source", "policies", "sql_statements",
-                        "translatable", "not_translatable", "warnings", "output_path"]
+                cols = ["timestamp","source","policies","sql_statements","translatable","not_translatable","warnings","input_path","output_path"]
                 df = df[[c for c in cols if c in df.columns]]
                 st.dataframe(df, use_container_width=True)
 
-# ── Footer ─────────────────────────────────────────────────────────────────────
+# ── Footer ──────────────────────────────────────────────────────────────────────
 st.markdown(
-    '<div style="text-align:center;color:#2e3350;font-size:10px;padding:12px 0;font-family:monospace">'
-    'Ranger → UC Translator v2.1 &nbsp;|&nbsp; Databricks Unity Catalog Migration Tool'
+    '<div style="text-align:center;color:var(--bdr);font-size:10px;padding:10px 0;font-family:var(--mono)">'
+    'Ranger → UC Translator v2.2 &nbsp;|&nbsp; Databricks Unity Catalog Migration Tool'
     '</div>',
-    unsafe_allow_html=True
+    unsafe_allow_html=True,
 )
