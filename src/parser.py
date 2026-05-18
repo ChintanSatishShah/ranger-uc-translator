@@ -102,6 +102,16 @@ class RangerPolicyParser:
                     self._parse_service_policies(sp)
                 return len(self.parse_errors) == 0
 
+            # Incremental update format: policyDeltas[].policy
+            if 'policyDeltas' in data and 'policies' not in data:
+                for delta in data['policyDeltas']:
+                    policy_data = delta.get('policy')
+                    if policy_data:
+                        policy = self._parse_policy(policy_data)
+                        if policy:
+                            self.policies.append(policy)
+                return len(self.parse_errors) == 0
+
             self._parse_service_policies(data)
             return len(self.parse_errors) == 0
         except Exception as e:

@@ -40,6 +40,26 @@ class RangerPolicyValidator:
         """Validate a Ranger export JSON structure containing multiple policies."""
         result = ValidationResult(is_valid=True, errors=[], warnings=[], policies=[])
 
+        # Incremental update format: policyDeltas[].policy
+        if 'policyDeltas' in export_data and 'policies' not in export_data:
+            result.add_warning(
+                "Detected incremental update format ('policyDeltas'). "
+                "Policies will be extracted from each delta's 'policy' field."
+            )
+            all_policies = [
+                delta['policy'] for delta in export_data.get('policyDeltas', [])
+                if 'policy' in delta
+            ]
+            root_service = export_data.get('serviceName')
+            return self._validate_policy_list(all_policies, root_service, result)
+
+        # Security zones format — note the securityZones key but process policies normally
+        if 'securityZones' in export_data:
+            result.add_warning(
+                "Detected 'securityZones' in this file. Security zone boundaries have no "
+                "direct Unity Catalog equivalent — policies will be translated ignoring zone scope."
+            )
+
         # ACL provider test format: testCases[].servicePolicies
         if 'testCases' in export_data:
             result.add_warning(
