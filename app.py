@@ -53,7 +53,7 @@ section[data-testid="stSidebar"] {
   display: flex !important;
 }
 section[data-testid="stSidebar"] > div:first-child { padding: 0 !important; }
-[data-testid="stSidebarContent"] { padding: 0 !important; }
+[data-testid="stSidebarContent"] { padding: 0 !important; padding-top: 62px !important; }
 
 /* Hide all collapse/expand toggle buttons */
 [data-testid="stSidebarCollapseButton"] { display: none !important; }
@@ -197,11 +197,11 @@ hr { border-color: var(--bdr) !important; margin: 8px 0 !important; }
   border-bottom: 1px solid var(--bdr);
   margin-bottom: 0;
 }
-.logo { font-size: 13px; font-weight: 700; letter-spacing: .07em; color: var(--acc); text-transform: uppercase; font-family: var(--sans); }
+.logo { font-size: 15px; font-weight: 700; letter-spacing: .07em; color: var(--acc); text-transform: uppercase; font-family: var(--sans); }
 .logo span { color: var(--txt); }
-.hbadge { font-size: 10px; padding: 2px 8px; border-radius: 10px; background: rgba(156,111,222,.15); color: var(--pur); font-weight: 600; }
+.hbadge { font-size: 12px; padding: 2px 8px; border-radius: 10px; background: rgba(156,111,222,.15); color: var(--pur); font-weight: 600; }
 
-.slbl { font-size: 10px; font-weight: 600; color: var(--mut); letter-spacing: .1em; text-transform: uppercase; padding: 10px 14px 6px; }
+.slbl { font-size: 12px; font-weight: 600; color: var(--mut); letter-spacing: .1em; text-transform: uppercase; padding: 10px 14px 6px; }
 
 .badge { display: inline-block; font-size: 13px; font-weight: 700; padding: 2px 9px; border-radius: 10px; }
 .badge-r  { background: rgba(232,74,32,.15);  color: var(--acc); }
@@ -214,11 +214,11 @@ hr { border-color: var(--bdr) !important; margin: 8px 0 !important; }
   display: flex; align-items: center; gap: 8px;
   padding: 7px 12px; background: var(--sur);
   border: 1px solid var(--bdr); border-radius: 6px 6px 0 0;
-  font-size: 10px; font-weight: 600; color: var(--mut);
+  font-size: 12px; font-weight: 600; color: var(--mut);
   text-transform: uppercase; letter-spacing: .06em;
   margin-bottom: -1px;
 }
-.pane-hdr .pbadge { font-size: 9px; font-weight: 700; padding: 2px 6px; border-radius: 8px; }
+.pane-hdr .pbadge { font-size: 11px; font-weight: 700; padding: 2px 6px; border-radius: 8px; }
 .pb-r { background: rgba(232,74,32,.15); color: var(--acc); }
 .pb-u { background: rgba(156,111,222,.15); color: var(--pur); }
 
@@ -437,14 +437,14 @@ st.markdown("""
 <div class="app-header">
   <div>
     <div class="logo">Ranger <span>→ Unity Catalog</span>
-      <span class="hbadge" style="margin-left:8px;vertical-align:middle">Databricks Practice</span>
+      <span class="hbadge" style="margin-left:8px;vertical-align:middle">Unison Data Engineering Practice</span>
     </div>
-    <div style="font-size:11px;color:var(--mut);margin-top:3px;font-family:var(--sans)">
+    <div style="font-size:13px;color:var(--mut);margin-top:3px;font-family:var(--sans)">
       Translate Apache Ranger security policies → Databricks Unity Catalog SQL &nbsp;·&nbsp;
       GRANT · EXTERNAL LOCATION · Column Mask · Row Filter
     </div>
   </div>
-  <div style="margin-left:auto;font-size:10px;color:var(--mut);font-family:var(--mono);white-space:nowrap">v2.2</div>
+  <div style="margin-left:auto;font-size:12px;color:var(--mut);font-family:var(--mono);white-space:nowrap">v2.2</div>
 </div>
 """, unsafe_allow_html=True)
 
@@ -520,7 +520,7 @@ with st.sidebar:
     st.markdown("<hr>", unsafe_allow_html=True)
 
     # Paste shortcut in sidebar
-    st.markdown('<div class="slbl">Or paste JSON</div>', unsafe_allow_html=True)
+    st.markdown('<div class="slbl">Paste JSON</div>', unsafe_allow_html=True)
     pasted = st.text_area("", height=80, placeholder="Paste JSON here...", key="paste_area", label_visibility="collapsed")
     if st.button("Load pasted JSON", key="load_paste", use_container_width=True):
         if pasted.strip():
