@@ -50,14 +50,29 @@ RESOURCE_TYPE_MAPPING = {
 # Column masking function expressions
 # These are just the masking expressions - the translator builds the full CASE statement
 MASKING_FUNCTIONS = {
-    "MASK_NONE": "{column}",  # No masking - return original value
-    "MASK": "'XXXXX'",  # Replace with fixed string
+    "MASK_NONE": "{column}",
+    "MASK": "'XXXXX'",
     "MASK_SHOW_LAST_4": "CONCAT(REPEAT('X', LENGTH({column})-4), RIGHT({column}, 4))",
     "MASK_SHOW_FIRST_4": "CONCAT(LEFT({column}, 4), REPEAT('X', LENGTH({column})-4))",
-    "MASK_HASH": "SHA2({column}, 256)",  # Hash the value
-    "MASK_NULL": "NULL",  # Replace with NULL
-    "MASK_DATE_SHOW_YEAR": "MAKE_DATE(YEAR({column}), 1, 1)",  # Show only year
-    "MASK_REDACT": "'[REDACTED]'"  # Redact with label
+    "MASK_HASH": "SHA2(CAST({column} AS STRING), 256)",
+    "MASK_NULL": "NULL",
+    "MASK_DATE_SHOW_YEAR": "MAKE_DATE(YEAR({column}), 1, 1)",
+    "MASK_TIMESTAMP_SHOW_DATE": "DATE_TRUNC('DAY', {column})",
+    "MASK_REDACT": "'[REDACTED]'"
+}
+
+# SQL parameter and return types for each masking function.
+# Used to generate correctly-typed CREATE FUNCTION signatures.
+MASKING_FUNCTION_TYPES = {
+    "MASK_NONE":              {"param_type": "STRING",    "return_type": "STRING"},
+    "MASK":                   {"param_type": "STRING",    "return_type": "STRING"},
+    "MASK_SHOW_LAST_4":       {"param_type": "STRING",    "return_type": "STRING"},
+    "MASK_SHOW_FIRST_4":      {"param_type": "STRING",    "return_type": "STRING"},
+    "MASK_HASH":              {"param_type": "STRING",    "return_type": "STRING"},
+    "MASK_NULL":              {"param_type": "STRING",    "return_type": "STRING"},
+    "MASK_DATE_SHOW_YEAR":    {"param_type": "DATE",      "return_type": "DATE"},
+    "MASK_TIMESTAMP_SHOW_DATE": {"param_type": "TIMESTAMP", "return_type": "TIMESTAMP"},
+    "MASK_REDACT":            {"param_type": "STRING",    "return_type": "STRING"},
 }
 
 @dataclass

@@ -1026,23 +1026,42 @@ with tab_hist:
             </div>
             """, unsafe_allow_html=True)
 
-            # Equal-width View buttons
+            # Toggle-based view buttons — each opens/closes independently
             row_key = f"{ts_str}_{source[:8]}"
+            sk_json = f"open_json_{row_key}"
+            sk_sql  = f"open_sql_{row_key}"
+            if sk_json not in st.session_state:
+                st.session_state[sk_json] = False
+            if sk_sql not in st.session_state:
+                st.session_state[sk_sql] = False
+
             vcols = st.columns([1, 1])
             with vcols[0]:
-                if inp_exists and st.button("📋 View Input JSON", key=f"viewjson_{row_key}", use_container_width=True):
-                    with st.expander(f"Input JSON — {inp_fname}", expanded=True):
-                        st.markdown(f'<div style="font-size:12px;color:var(--mut);margin-bottom:8px">📋 {inp_path}</div>', unsafe_allow_html=True)
-                        inp_content = Path(inp_path).read_text()
-                        st.download_button("📥 Download JSON", data=inp_content, file_name=inp_fname, mime="application/json", key=f"dljson_{row_key}", use_container_width=True)
-                        st.code(inp_content, language="json")
+                if inp_exists:
+                    lbl = "📋 Hide JSON" if st.session_state[sk_json] else "📋 View Input JSON"
+                    if st.button(lbl, key=f"btn_json_{row_key}", use_container_width=True):
+                        st.session_state[sk_json] = not st.session_state[sk_json]
+                        st.rerun()
             with vcols[1]:
-                if out_exists and st.button("📄 View Output SQL", key=f"viewsql_{row_key}", use_container_width=True):
-                    sql_content = Path(out_path).read_text()
-                    with st.expander(f"SQL — {out_fname}", expanded=True):
-                        st.markdown(f'<div style="font-size:12px;color:var(--mut);margin-bottom:8px">📄 {out_path}</div>', unsafe_allow_html=True)
-                        st.download_button("📥 Download SQL", data=sql_content, file_name=out_fname, mime="text/plain", key=f"dlsql_{row_key}", use_container_width=True)
-                        st.code(sql_content, language="sql", line_numbers=True)
+                if out_exists:
+                    lbl = "📄 Hide SQL" if st.session_state[sk_sql] else "📄 View Output SQL"
+                    if st.button(lbl, key=f"btn_sql_{row_key}", use_container_width=True):
+                        st.session_state[sk_sql] = not st.session_state[sk_sql]
+                        st.rerun()
+
+            if st.session_state[sk_json] and inp_exists:
+                inp_content = Path(inp_path).read_text()
+                st.markdown(f'<div style="font-size:12px;color:var(--mut);margin:6px 0 4px">📋 {inp_path}</div>', unsafe_allow_html=True)
+                st.download_button("📥 Download JSON", data=inp_content, file_name=inp_fname,
+                                   mime="application/json", key=f"dljson_{row_key}", use_container_width=True)
+                st.code(inp_content, language="json")
+
+            if st.session_state[sk_sql] and out_exists:
+                sql_content = Path(out_path).read_text()
+                st.markdown(f'<div style="font-size:12px;color:var(--mut);margin:6px 0 4px">📄 {out_path}</div>', unsafe_allow_html=True)
+                st.download_button("📥 Download SQL", data=sql_content, file_name=out_fname,
+                                   mime="text/plain", key=f"dlsql_{row_key}", use_container_width=True)
+                st.code(sql_content, language="sql", line_numbers=True)
 
         with st.expander("📋 Full table view"):
             df = pd.DataFrame(history)

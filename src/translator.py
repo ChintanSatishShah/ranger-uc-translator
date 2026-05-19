@@ -5,7 +5,10 @@ Translates Apache Ranger policies to Unity Catalog SQL statements.
 from typing import List, Optional, Dict, Union
 from dataclasses import dataclass
 from .parser import RangerPolicy, PolicyType
-from .config import TranslationConfig, MASKING_FUNCTIONS, EXTERNAL_LOCATION_PRIVILEGE_MAPPING
+from .config import (
+    TranslationConfig, MASKING_FUNCTIONS, MASKING_FUNCTION_TYPES,
+    EXTERNAL_LOCATION_PRIVILEGE_MAPPING
+)
 from . import utils
 
 
@@ -60,9 +63,13 @@ class PolicyTranslator:
         is_first = True
 
         for path in paths:
-            # Derive a readable External Location placeholder from the path
+            # Derive a syntactically-valid External Location placeholder identifier.
+            # Angle-bracket notation (<...>) is not a valid SQL identifier even in backticks,
+            # so we use a plain prefixed name and document the original path in a comment.
+            import re as _re
             slug = path.strip('/').replace('/', '_').replace('*', 'all').replace('{USER}', 'USER') or 'root'
-            ext_loc = f"<external_location_for_{slug}>"
+            slug = _re.sub(r'[^a-zA-Z0-9_]', '_', slug)
+            ext_loc_name = f"ext_loc_{slug}"  # valid SQL identifier — replace with actual UC External Location name
 
             for item in (policy.policy_items or []):
                 privileges = [
@@ -76,7 +83,7 @@ class PolicyTranslator:
                     uc_principal = self.config.get_principal_mapping(principal)
                     principals.append(uc_principal)
                     for priv in privileges:
-                        grant_sql = f"GRANT {priv} ON EXTERNAL LOCATION `{ext_loc}` TO `{uc_principal}`"
+                        grant_sql = f"GRANT {priv} ON EXTERNAL LOCATION `{ext_loc_name}` TO `{uc_principal}`"
                         if is_first:
                             sql_statements.append(utils.format_sql_statement(
                                 grant_sql,
@@ -84,7 +91,7 @@ class PolicyTranslator:
                                 policy_id=str(policy.id),
                                 policy_description=(
                                     f"{policy.description or ''}\n"
-                                    f"-- NOTE: Replace '{ext_loc}' with the actual UC External Location name\n"
+                                    f"-- NOTE: Replace '{ext_loc_name}' with the actual UC External Location name\n"
                                     f"-- that corresponds to the Ranger path: {path}"
                                 ).strip()
                             ))
@@ -165,6 +172,11 @@ class PolicyTranslator:
         # Table-level
         if table_val:
             schema = db_val or self.config.schema
+            # Wildcard tables or HBase-style "NAMESPACE:table" patterns cannot be expressed
+            # as a single UC table reference — fall back to schema-level grant.
+            import re as _re
+            if '*' in table_val or ':' in table_val or _re.search(r'[^a-zA-Z0-9_`\-]', table_val):
+                return f"SCHEMA {catalog}.{schema}"
             return f"{catalog}.{schema}.{table_val}"
 
         return None
@@ -209,29 +221,54 @@ class PolicyTranslator:
 
         # Determine the correct Databricks SQL object-type keyword for this resource.
         # SCHEMA/CATALOG/FUNCTION already embed their keyword; plain 3-part paths are TABLE.
-        if resource.startswith(('CATALOG ', 'SCHEMA ', 'FUNCTION ', 'EXTERNAL LOCATION ')):
-            grant_resource = resource
-        else:
+        is_table_level = not resource.startswith(('CATALOG ', 'SCHEMA ', 'FUNCTION ', 'EXTERNAL LOCATION '))
+        if is_table_level:
             grant_resource = f"TABLE {resource}"
+        else:
+            grant_resource = resource
+
+        def _remap_privilege(privilege: str, is_table: bool) -> str:
+            """Remap privileges invalid at table level to their correct UC equivalent.
+
+            In Databricks UC, CREATE is not a table-level privilege.
+            GRANT CREATE TABLE must target a SCHEMA. We emit a SCHEMA-level
+            grant with a comment rather than invalid GRANT CREATE ON TABLE.
+            """
+            if is_table and privilege == 'CREATE':
+                return None  # handled separately below as schema-level CREATE TABLE
+            return privilege
+
+        def _schema_from_resource(resource_path: str) -> str:
+            """Extract catalog.schema from a 3-part table path."""
+            parts = resource_path.split('.')
+            return '.'.join(parts[:2]) if len(parts) >= 2 else resource_path
 
         # Generate GRANT statements
         is_first_stmt = True
         for item in policy.policy_items:
-            privileges = [self.config.get_privilege_mapping(acc['type'])
-                         for acc in item.accesses if acc.get('isAllowed', True)]
+            raw_privileges = [self.config.get_privilege_mapping(acc['type'])
+                              for acc in item.accesses if acc.get('isAllowed', True)]
 
-            if not privileges:
+            privileges = [_remap_privilege(p, is_table_level) for p in raw_privileges]
+            has_create = is_table_level and 'CREATE' in raw_privileges
+
+            if not any(p for p in privileges if p) and not has_create:
                 continue
 
-            # Grant to users
-            for user in item.users:
-                uc_user = self.config.get_principal_mapping(user)
-                principals.append(f"user:{uc_user}")
+            all_principals = (
+                [('user', self.config.get_principal_mapping(u)) for u in item.users] +
+                [('group', self.config.get_principal_mapping(g)) for g in item.groups] +
+                [('role', self.config.get_principal_mapping(r)) for r in (item.roles or [])]
+            )
+            for ptype, pname in all_principals:
+                principals.append(f"{ptype}:{pname}")
 
+            for ptype, pname in all_principals:
+                # Regular privileges (SELECT, MODIFY, etc.)
                 for privilege in privileges:
-                    grant_sql = f"GRANT {privilege} ON {grant_resource} TO `{uc_user}`"
-                    
-                    # Add policy metadata to first statement only
+                    if privilege is None:
+                        continue
+                    grant_sql = f"GRANT {privilege} ON {grant_resource} TO `{pname}`"
                     if is_first_stmt:
                         sql_statements.append(utils.format_sql_statement(
                             grant_sql,
@@ -242,24 +279,16 @@ class PolicyTranslator:
                         is_first_stmt = False
                     else:
                         sql_statements.append(utils.format_sql_statement(grant_sql))
-            
-            # Grant to groups
-            for group in item.groups:
-                uc_group = self.config.get_principal_mapping(group)
-                principals.append(f"group:{uc_group}")
 
-                for privilege in privileges:
-                    grant_sql = f"GRANT {privilege} ON {grant_resource} TO `{uc_group}`"
-                    sql_statements.append(utils.format_sql_statement(grant_sql))
-
-            # Grant to roles
-            for role in (item.roles or []):
-                uc_role = self.config.get_principal_mapping(role)
-                principals.append(f"role:{uc_role}")
-
-                for privilege in privileges:
-                    grant_sql = f"GRANT {privilege} ON {grant_resource} TO `{uc_role}`"
-                    sql_statements.append(utils.format_sql_statement(grant_sql))
+                # CREATE at table level → remap to CREATE TABLE on SCHEMA
+                if has_create:
+                    schema_path = _schema_from_resource(resource)
+                    create_sql = (
+                        f"-- NOTE: Ranger 'create' on a table maps to UC schema-level privilege.\n"
+                        f"-- Granting CREATE TABLE on the parent schema instead.\n"
+                        f"GRANT CREATE TABLE ON SCHEMA {schema_path} TO `{pname}`"
+                    )
+                    sql_statements.append(utils.format_sql_statement(create_sql))
         
         if not sql_statements:
             return None
@@ -479,6 +508,14 @@ class PolicyTranslator:
             mask_func = MASKING_FUNCTIONS.get(default_mask_type, MASKING_FUNCTIONS["MASK_REDACT"])
             masked_expr = mask_func.replace("{column}", column)
 
+            # Use correct SQL data types for the function signature based on masking type.
+            # e.g. MASK_DATE_SHOW_YEAR operates on DATE columns and returns DATE.
+            type_meta = MASKING_FUNCTION_TYPES.get(
+                default_mask_type, {"param_type": "STRING", "return_type": "STRING"}
+            )
+            param_type = type_meta["param_type"]
+            return_type = type_meta["return_type"]
+
             # Build function body: CASE with passthrough WHENs then masked ELSE.
             # If no passthrough rules exist, skip the CASE and return the masked
             # expression directly (avoids invalid "CASE ELSE ... END" with no WHEN).
@@ -491,8 +528,8 @@ class PolicyTranslator:
                 func_body = masked_expr
 
             create_func = (
-                f"CREATE OR REPLACE FUNCTION {qualified_func}({column} STRING)\n"
-                f"RETURNS STRING\n"
+                f"CREATE OR REPLACE FUNCTION {qualified_func}({column} {param_type})\n"
+                f"RETURNS {return_type}\n"
                 f"RETURN\n  {func_body}"
             )
 
@@ -709,9 +746,12 @@ class EnhancedPolicyTranslator(PolicyTranslator):
                 func_body = masked_expr
 
             qualified_func = f"{catalog}.{database}.{func_name}"
+            type_meta = MASKING_FUNCTION_TYPES.get(
+                default_mask_type, {"param_type": "STRING", "return_type": "STRING"}
+            )
             create_func = (
-                f"CREATE OR REPLACE FUNCTION {qualified_func}({column} STRING)\n"
-                f"RETURNS STRING\n"
+                f"CREATE OR REPLACE FUNCTION {qualified_func}({column} {type_meta['param_type']})\n"
+                f"RETURNS {type_meta['return_type']}\n"
                 f"RETURN\n  {func_body}"
             )
 
