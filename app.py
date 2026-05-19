@@ -354,7 +354,7 @@ def get_input_dir():
 
 
 def save_input(json_str: str, source_name: str, is_sample: bool = False) -> str:
-    """Save input JSON to input/ dir. If it's a sample, just return the samples/ path."""
+    """Save input JSON to input/. Sample files point to samples/ directly (no copy)."""
     if is_sample:
         samples_dir = get_samples_dir()
         if samples_dir:
@@ -364,7 +364,12 @@ def save_input(json_str: str, source_name: str, is_sample: bool = False) -> str:
     inp_dir = get_input_dir()
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     slug = source_name.replace(".json", "").replace(" ", "_")[:40] if source_name else "upload"
-    path = inp_dir / f"input_{slug}_{ts}.json"
+    # Prefix: pasted_input_ for paste, otherwise use slug directly (uploaded filename)
+    if source_name == "pasted_input":
+        fname = f"pasted_input_{ts}.json"
+    else:
+        fname = f"{slug}_{ts}.json"
+    path = inp_dir / fname
     path.write_text(json_str, encoding="utf-8")
     return str(path)
 
