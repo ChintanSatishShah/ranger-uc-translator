@@ -4,7 +4,7 @@
 
 [![Translation Success](https://img.shields.io/badge/Translation%20Success-100%25-brightgreen)]()
 [![Policy Types](https://img.shields.io/badge/Policy%20Types-4%2F4-blue)]()
-[![SQL Statements](https://img.shields.io/badge/SQL%20Generated-118-orange)]()
+[![SQL Statements](https://img.shields.io/badge/SQL%20Generated-820%2B-orange)]()
 [![UI](https://img.shields.io/badge/UI-Streamlit-red)]()
 
 ---
@@ -23,7 +23,7 @@ This comprehensive solution automates the migration of Apache Ranger policies to
 | **MASK_NONE (Conditional)** | ✅ Full | Included | 100% |
 | **Tag-based Policies** | ✅ Full | 3 samples | 100% |
 
-**Total:** 12 test samples, 118 SQL statements generated, 0 errors
+**Total:** 12 test samples, 820+ SQL statements generated, 0 errors
 
 ---
 
@@ -62,15 +62,15 @@ This comprehensive solution automates the migration of Apache Ranger policies to
 
 ### Core Components
 
-| Module | Purpose | Lines | Features |
-|--------|---------|-------|----------|
-| `parser.py` | Parse Ranger JSON | 227 | 4 policy types, error handling |
-| `translator.py` | UC policy translation | 606 | All 4 policy types, tag support |
-| `validator.py` | Input/SQL validation | 307 | Error detection, warnings |
-| `applier.py` | Execute policies | 203 | Dry-run mode, audit logging |
-| `config.py` | Configuration | 100 | Mappings, settings |
-| `utils.py` | Helper functions | 219 | SQL formatting, identifiers |
-| `app.py` | Streamlit UI | 414 | Single-page, 3-tab interface |
+| Module | Purpose | Features |
+|--------|---------|----------|
+| `parser.py` | Parse Ranger JSON | 4 policy types, policyDeltas/testCases/aclprovider/policyengine formats, numeric policyType precedence |
+| `translator.py` | UC policy translation | All 4 policy types, tag resolution, SET TAGS generation, row filter merge, typed masking functions |
+| `validator.py` | Input/SQL validation | Error detection, warnings, SQL syntax checks |
+| `applier.py` | Execute policies | Dry-run mode, audit logging |
+| `config.py` | Configuration | Privilege mappings, masking function types (DATE/TIMESTAMP/BOOLEAN), settings |
+| `utils.py` | Helper functions | SQL formatting, identifier quoting (backticks for hyphens), function name generation |
+| `app.py` | Streamlit UI | Single-page, 3-tab interface with Mapping reference tab |
 
 ---
 
@@ -80,7 +80,7 @@ This comprehensive solution automates the migration of Apache Ranger policies to
 ranger-uc-translator/
 ├── 📄 Configuration & Entry Point
 │   ├── app.yaml                  # Databricks App configuration
-│   ├── app.py                    # Streamlit UI (414 lines)
+│   ├── app.py                    # Streamlit UI
 │   ├── requirements.txt          # Python dependencies
 │   └── .gitignore
 │
@@ -554,29 +554,21 @@ The app uses a streamlined single-page design optimized for quick policy transla
 
 | Metric | Result |
 |--------|--------|
-| **Total Test Files** | 12 |
-| **Parse Success Rate** | 100% (12/12) |
-| **Translation Success Rate** | 100% (12/12) |
-| **SQL Statements Generated** | 118 |
+| **Total Test Files** | 12 samples + 49 real-world test files |
+| **Parse Success Rate** | 100% |
+| **Translation Success Rate** | 100% |
+| **SQL Statements Generated** | 820+ (across all test files) |
+| **SQL Syntax Issues** | 0 |
 | **Total Errors** | 0 |
-| **Total Warnings** | 0 |
 
-### Results by Policy Type
+### Results by Policy Type (12 samples)
 
-| Policy Type | Files | Success | SQL Generated |
-|-------------|-------|---------|---------------|
-| Access (ACL) | 3 | 3/3 (100%) | 23 |
-| Row Filters | 3 | 3/3 (100%) | 12 |
-| Column Masking | 3 | 3/3 (100%) | 52 |
-| Tag-based | 3 | 3/3 (100%) | 31 |
-
-### Results by Complexity
-
-| Complexity | Files | Avg SQL/Policy | Errors |
-|-----------|-------|----------------|--------|
-| Simple | 4 | 3.75 | 0 |
-| Medium | 4 | 10.50 | 0 |
-| Complex | 4 | 15.25 | 0 |
+| Policy Type | Files | Success | Notes |
+|-------------|-------|---------|-------|
+| Access (ACL) | 3 | 3/3 (100%) | Wildcard resources → SCHEMA-level grant |
+| Row Filters | 3 | 3/3 (100%) | Multiple items merged into one function per table |
+| Column Masking | 3 | 3/3 (100%) | Typed return values (DATE, TIMESTAMP, STRING) |
+| Tag-based | 3 | 3/3 (100%) | Real table resolution + SET TAGS generation |
 
 ### Sample Policies Included
 
@@ -645,15 +637,19 @@ GRANT SELECT ON main.sales.customers TO `analyst1@company.com`;
 
 **Generated UC SQL:**
 ```sql
-CREATE OR REPLACE FUNCTION main.sales.rf_orders_101_0(row ROW(orders))
-RETURN IF(
-  is_account_group_member('west_manager@company.com'),
-  region = 'WEST',
-  FALSE
-);
+-- Single function per table; all user/group logic merged into one CASE statement
+CREATE OR REPLACE FUNCTION main.sales.rf_orders_101_0(region STRING)
+RETURNS BOOLEAN
+RETURN
+  CASE
+    WHEN is_account_group_member('west_manager@company.com')
+    THEN region = 'WEST'
+    ELSE TRUE
+  END;
 
-ALTER TABLE main.sales.orders 
-SET ROW FILTER rf_orders_101_0 ON (`west_manager@company.com`);
+ALTER TABLE main.sales.orders
+SET ROW FILTER main.sales.rf_orders_101_0
+ON (region);
 ```
 
 ---
@@ -680,14 +676,15 @@ SET ROW FILTER rf_orders_101_0 ON (`west_manager@company.com`);
 
 **Generated UC SQL:**
 ```sql
-CREATE OR REPLACE FUNCTION main.hr.mask_employees_ssn_mask_show_last_4(column_value STRING)
-RETURN CASE 
-  WHEN is_account_group_member('hr_staff') THEN column_value 
-  ELSE CONCAT(REPEAT('X', LENGTH(column_value)-4), RIGHT(column_value, 4)) 
-END;
+-- Fully-qualified function name; RETURNS type matches column type
+CREATE OR REPLACE FUNCTION main.hr.mask_employees_ssn_mask_show_last_4(ssn STRING)
+RETURNS STRING
+RETURN
+  CONCAT(REPEAT('X', LENGTH(ssn)-4), RIGHT(ssn, 4));
 
-ALTER TABLE main.hr.employees 
-ALTER COLUMN ssn SET MASK mask_employees_ssn_mask_show_last_4;
+ALTER TABLE main.hr.employees
+ALTER COLUMN ssn
+SET MASK main.hr.mask_employees_ssn_mask_show_last_4;
 ```
 
 ---
@@ -714,21 +711,19 @@ ALTER COLUMN ssn SET MASK mask_employees_ssn_mask_show_last_4;
 
 **Generated UC SQL:**
 ```sql
--- Create tag definition
-CREATE TAG IF NOT EXISTS main.ranger_migration.PII 
-COMMENT 'Tag attributes: level=high, category=sensitive';
+-- Tag propagation: SET TAGS from resourceTags metadata
+-- Column-level tags (3-part resource paths)
+ALTER TABLE main.sales.customers ALTER COLUMN ssn SET TAGS ('pii' = 'true');
+ALTER TABLE main.hr.employees ALTER COLUMN salary SET TAGS ('pii' = 'true');
 
--- Apply tag to resources
-ALTER TABLE main.sales.customers.ssn 
-SET TAGS ('main.ranger_migration.PII' = 'true');
-
-ALTER TABLE main.hr.employees.salary 
-SET TAGS ('main.ranger_migration.PII' = 'true');
-
--- Grant access on tagged resources
-GRANT SELECT ON main.sales.customers.ssn TO `data_protection_team`;
-GRANT SELECT ON main.hr.employees.salary TO `data_protection_team`;
+-- Access grants on resolved tagged tables
+GRANT SELECT ON TABLE main.sales.customers TO `data_protection_team`;
+GRANT SELECT ON TABLE main.hr.employees TO `data_protection_team`;
 ```
+
+> **Note:** When `resourceTags` metadata is provided in the policy file, the translator
+> resolves tag names to real table/column paths and generates exact `GRANT` and `SET TAGS`
+> statements. Without `resourceTags`, a `<table_with_PII>` placeholder is used instead.
 
 ---
 
@@ -785,11 +780,13 @@ config = TranslationConfig(
 
 | Feature | Status | Impact | Workaround |
 |---------|--------|--------|------------|
-| **Wildcard Resources (*)** | Partial | Wildcards in table names need review | Manual verification |
-| **Deny Policies** (denyPolicyItems) | Not implemented | Deny rules must be converted manually | Use DENY statements |
-| **Conditional Policies** | Not implemented | Time/IP-based conditions ignored | Apply conditions separately |
-| **Complex Hierarchies** | Basic support | Multi-level hierarchies need review | Flatten structure |
-| **Custom Masking Functions** | Limited templates | Complex masks may need adjustment | Extend MASKING_FUNCTIONS dict |
+| **Wildcard Resources (*)** | Handled | Wildcard tables fall back to SCHEMA-level grant automatically | Review schema-level grants; narrow if needed |
+| **Deny Policies** (denyPolicyItems) | Comment-only | Deny rules emitted as `-- DENY POLICY` comments; UC is deny-by-default | Remove principals from allow lists instead |
+| **Conditional Policies** | Not implemented | Time/IP-based conditions ignored | Apply time/IP conditions at workspace network layer |
+| **Tag policies without resourceTags** | Placeholder | `<table_with_TAG>` placeholder generated | Add `resourceTags` metadata to policy file for auto-resolution |
+| **One row filter per table** | Enforced | All Ranger items merged into one CASE function per table | Review merged CASE logic before execution |
+| **Custom Masking Functions** | Limited templates | Complex masks may need adjustment | Extend MASKING_FUNCTIONS dict in config.py |
+| **DROP privilege** | Remapped | `drop` → `MANAGE` (DROP is not valid in UC) | MANAGE is the closest UC equivalent |
 
 ### Recommendations
 
@@ -904,16 +901,19 @@ print(f'Generated {len(policies)} UC policies')
 
 ### Future Enhancements
 
-- [ ] Support for deny policies (denyPolicyItems)
+- [x] Deny policies → emitted as SQL comments (UC deny-by-default)
+- [x] Wildcard resource handling → falls back to SCHEMA-level grant
+- [x] Tag-based policies → resolved to real tables when resourceTags available
+- [x] Row filter merging → one function per table with combined CASE logic
+- [x] Proper UC privilege mapping (DROP → MANAGE, CREATE → CREATE TABLE on SCHEMA)
+- [x] Typed masking functions (DATE, TIMESTAMP, BOOLEAN return types)
+- [x] Backtick-quoting for hyphenated identifiers
 - [ ] Conditional policy translation (time/IP-based)
-- [ ] Expanded masking function library
-- [ ] Advanced wildcard handling
-- [ ] Multi-level resource hierarchy support
-- [ ] Batch execution optimization
-- [ ] Real-time validation during upload
-- [ ] Policy comparison tool (Ranger vs UC)
+- [ ] Expanded masking function library (custom conditionExpr)
+- [ ] Policy comparison tool (Ranger vs UC effective permissions)
 - [ ] Automated rollback functionality
 - [ ] Integration with Ranger API (direct export)
+- [ ] delegateAdmin → GRANT WITH GRANT OPTION
 
 ---
 
@@ -921,10 +921,9 @@ print(f'Generated {len(policies)} UC policies')
 
 ### Documentation
 
-- **[PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md)** - Complete project structure guide
-- **[docs/APP_USER_GUIDE.md](docs/APP_USER_GUIDE.md)** - Complete Streamlit app usage guide
-- **[docs/GIT_INTEGRATION.md](docs/GIT_INTEGRATION.md)** - Git setup and deployment
-- **[DEPLOYMENT.md](DEPLOYMENT.md)** - Deployment instructions
+- **[docs/APP_USER_GUIDE.md](docs/APP_USER_GUIDE.md)** - App usage guide
+- **[docs/GIT_INTEGRATION.md](docs/GIT_INTEGRATION.md)** - Git setup and Databricks App deployment
+- **[docs/PROJECT_STRUCTURE.md](docs/PROJECT_STRUCTURE.md)** - Code structure and module descriptions
 
 ### Sample Files
 
@@ -986,6 +985,6 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 [![Python](https://img.shields.io/badge/Python-3.10+-3776AB?logo=python&logoColor=white)](https://python.org)
 [![Streamlit](https://img.shields.io/badge/Streamlit-1.28+-FF4B4B?logo=streamlit&logoColor=white)](https://streamlit.io)
 
-*Last Updated: 2024-05-16 | Version: 2.0 | Structure: Reorganized*
+*Last Updated: 2026-05-19 | Version: 2.1 | All 4 policy types + tag resolution + SQL validity*
 
 </div>

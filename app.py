@@ -203,7 +203,7 @@ hr { border-color: var(--bdr) !important; margin: 8px 0 !important; }
 
 .slbl { font-size: 10px; font-weight: 600; color: var(--mut); letter-spacing: .1em; text-transform: uppercase; padding: 10px 14px 6px; }
 
-.badge { display: inline-block; font-size: 9px; font-weight: 700; padding: 2px 7px; border-radius: 10px; }
+.badge { display: inline-block; font-size: 13px; font-weight: 700; padding: 2px 9px; border-radius: 10px; }
 .badge-r  { background: rgba(232,74,32,.15);  color: var(--acc); }
 .badge-u  { background: rgba(156,111,222,.15); color: var(--pur); }
 .badge-ok { background: rgba(0,200,150,.15);  color: var(--grn); }
@@ -242,14 +242,14 @@ hr { border-color: var(--bdr) !important; margin: 8px 0 !important; }
 
 .map-row {
   display: flex; align-items: baseline; gap: 8px;
-  padding: 4px 8px; border-radius: 4px;
-  font-family: var(--mono); font-size: 10px;
+  padding: 5px 8px; border-radius: 4px;
+  font-family: var(--mono); font-size: 13px;
   border-bottom: 1px solid rgba(46,51,80,.6);
 }
 .map-row:last-child { border-bottom: none; }
 .map-row:hover { background: var(--sur2); }
 .map-r { color: var(--acc); background: rgba(232,74,32,.08); padding: 1px 5px; border-radius: 3px; white-space: nowrap; flex-shrink: 0; }
-.map-a { color: var(--mut); font-size: 9px; flex-shrink: 0; }
+.map-a { color: var(--mut); font-size: 12px; flex-shrink: 0; }
 .map-u { color: var(--pur); background: rgba(156,111,222,.08); padding: 1px 5px; border-radius: 3px; }
 .map-x { color: var(--red); background: rgba(231,76,60,.08); padding: 1px 5px; border-radius: 3px; }
 .map-w { color: var(--amb); background: rgba(245,166,35,.08); padding: 1px 5px; border-radius: 3px; }
@@ -258,7 +258,7 @@ hr { border-color: var(--bdr) !important; margin: 8px 0 !important; }
   border: 1px solid var(--bdr); border-radius: 6px; overflow: hidden; margin-bottom: 12px;
 }
 .map-section-hdr {
-  font-size: 9px; font-weight: 700; color: var(--mut);
+  font-size: 12px; font-weight: 700; color: var(--mut);
   text-transform: uppercase; letter-spacing: .1em;
   padding: 6px 10px; background: var(--sur);
   border-bottom: 1px solid var(--bdr);
@@ -268,30 +268,30 @@ hr { border-color: var(--bdr) !important; margin: 8px 0 !important; }
   border: 1px solid rgba(245,166,35,.3); border-radius: 8px;
   background: rgba(245,166,35,.05); padding: 12px 16px; margin-bottom: 10px;
 }
-.limit-box h4 { font-size: 11px; font-weight: 700; color: var(--amb); margin-bottom: 8px; text-transform: uppercase; letter-spacing: .06em; }
+.limit-box h4 { font-size: 14px; font-weight: 700; color: var(--amb); margin-bottom: 8px; text-transform: uppercase; letter-spacing: .06em; }
 .limit-box ul { margin: 0; padding-left: 16px; }
-.limit-box li { font-size: 11px; color: var(--txt); line-height: 1.8; font-family: var(--sans); }
-.limit-box li span { color: var(--mut); font-family: var(--mono); font-size: 10px; }
+.limit-box li { font-size: 14px; color: var(--txt); line-height: 1.8; font-family: var(--sans); }
+.limit-box li span { color: var(--mut); font-family: var(--mono); font-size: 12px; }
 
 .cant-box {
   border: 1px solid rgba(231,76,60,.3); border-radius: 8px;
   background: rgba(231,76,60,.04); padding: 12px 16px; margin-bottom: 10px;
 }
-.cant-box h4 { font-size: 11px; font-weight: 700; color: var(--red); margin-bottom: 8px; text-transform: uppercase; letter-spacing: .06em; }
+.cant-box h4 { font-size: 14px; font-weight: 700; color: var(--red); margin-bottom: 8px; text-transform: uppercase; letter-spacing: .06em; }
 .cant-box ul { margin: 0; padding-left: 16px; }
-.cant-box li { font-size: 11px; color: var(--txt); line-height: 1.8; }
-.cant-box li code { font-family: var(--mono); font-size: 10px; color: var(--mut); background: var(--sur2); padding: 1px 4px; border-radius: 3px; }
+.cant-box li { font-size: 14px; color: var(--txt); line-height: 1.8; }
+.cant-box li code { font-family: var(--mono); font-size: 12px; color: var(--mut); background: var(--sur2); padding: 1px 4px; border-radius: 3px; }
 
 .hist-row {
   display: flex; align-items: center; gap: 10px;
   padding: 10px 14px; border-radius: 6px;
   border: 1px solid var(--bdr); margin-bottom: 6px;
-  background: var(--sur); font-size: 13px;
+  background: var(--sur); font-size: 15px;
 }
 .hist-row:hover { background: var(--sur2); }
-.hist-ts { color: var(--mut); font-size: 12px; font-family: var(--mono); min-width: 145px; flex-shrink: 0; }
-.hist-src { color: var(--acc); font-weight: 600; font-size: 13px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.hist-path { color: var(--pur); font-family: var(--mono); font-size: 11px; }
+.hist-ts { color: var(--mut); font-size: 14px; font-family: var(--mono); min-width: 145px; flex-shrink: 0; }
+.hist-src { color: var(--acc); font-weight: 600; font-size: 15px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hist-path { color: var(--pur); font-family: var(--mono); font-size: 13px; }
 
 .fi-row {
   display: flex; align-items: center; gap: 7px;
@@ -770,9 +770,9 @@ with tab_map:
             ("table",                "→", "TABLE main.{db}.{table}",     "ok"),
             ("column",               "→", "via mask/filter function",    "ok"),
             ("udf",                  "→", "FUNCTION main.{db}.{udf}",    "ok"),
-            ("path (HDFS/ADLS/S3)",  "→", "EXTERNAL LOCATION (placeholder)", "warn"),
-            ("url (Hive URL policy)","→", "EXTERNAL LOCATION (placeholder)", "warn"),
-            ("tag",                  "→", "Tag-based GRANT (placeholder)","warn"),
+            ("path (HDFS/ADLS/S3)",  "→", "EXTERNAL LOCATION ext_loc_&lt;slug&gt; (placeholder)", "warn"),
+            ("url (Hive URL policy)","→", "EXTERNAL LOCATION ext_loc_&lt;slug&gt; (placeholder)", "warn"),
+            ("tag",                  "→", "Real GRANTs on tagged tables (when resourceTags present); placeholder when not","warn"),
             ("topic (Kafka)",        "✗", "No UC equivalent",            "err"),
             ("cluster (Kafka)",      "✗", "No UC equivalent",            "err"),
             ("consumergroup (Kafka)","✗", "No UC equivalent",            "err"),
@@ -792,8 +792,10 @@ with tab_map:
             ("ACCESS  (policyType=0)", "→", "GRANT privilege ON resource TO principal"),
             ("COLUMN_MASK (policyType=1)", "→", "CREATE FUNCTION + ALTER TABLE SET MASK"),
             ("ROW_FILTER (policyType=2)", "→", "CREATE FUNCTION + ALTER TABLE SET ROW FILTER"),
-            ("TAG-based ACCESS", "→", "GRANT on table matching tag (placeholder)"),
-            ("TAG-based MASK", "→", "CREATE FUNCTION on table matching tag"),
+            ("TAG-based ACCESS", "→", "GRANT on resolved tables (real when resourceTags present); placeholder otherwise"),
+            ("TAG-based MASK", "→", "CREATE FUNCTION + SET MASK on resolved tables"),
+            ("TAG-based ROW FILTER", "→", "CREATE FUNCTION + SET ROW FILTER on resolved tables"),
+            ("ALTER TABLE SET TAGS", "→", "Generated from resourceTags metadata; placeholder when table unknown"),
             ("policyDeltas format", "→", "Delta policies extracted and translated"),
             ("testCases format", "→", "servicePolicies extracted per test case"),
             ("securityZones", "~", "Zone names noted in output — boundaries not translatable"),
@@ -830,7 +832,7 @@ with tab_map:
             ("update",              "→", "MODIFY",                    "ok"),
             ("write",               "→", "MODIFY",                    "ok"),
             ("create",              "→", "CREATE TABLE / CREATE SCHEMA","ok"),
-            ("drop",                "→", "DROP",                      "ok"),
+            ("drop",                "→", "MANAGE  (DROP is not a valid UC privilege)", "ok"),
             ("alter",               "→", "ALTER",                     "ok"),
             ("all",                 "→", "ALL PRIVILEGES",            "ok"),
             ("admin",               "→", "ALL PRIVILEGES",            "ok"),
@@ -863,7 +865,8 @@ with tab_map:
             ("MASK_HASH",         "SHA2(CAST(col AS STRING), 256)"),
             ("MASK_NULL",         "NULL"),
             ("MASK_NONE",         "col  (pass-through, no masking)"),
-            ("MASK_DATE_SHOW_YEAR","MAKE_DATE(YEAR(col), 1, 1)"),
+            ("MASK_DATE_SHOW_YEAR","MAKE_DATE(YEAR(col), 1, 1)  [param/return: DATE]"),
+            ("MASK_TIMESTAMP_SHOW_DATE", "DATE_TRUNC('DAY', col)  [param/return: TIMESTAMP]"),
             ("MASK_REDACT",       "'[REDACTED]'"),
             ("NULL",              "NULL  (alias for MASK_NULL)"),
             ("SHUFFLE",           "SHA2(col, 256)  (approximation)"),
@@ -902,12 +905,13 @@ with tab_map:
         <div class="limit-box">
           <h4>⚠ Caution areas — output is approximate</h4>
           <ul>
-            <li><b>denyPolicyItems</b> — noted in SQL output with a <code>-- WARNING: DENY</code> comment but UC has no DENY verb; restructure as allow-only <span>(UC is deny-by-default)</span></li>
+            <li><b>denyPolicyItems</b> — emitted as <code>-- DENY POLICY</code> comments in output; UC has no DENY verb (it is deny-by-default); restructure as allow-only grants</li>
             <li><b>allowExceptions / denyExceptions</b> — exceptions appear in output as individual GRANTs but exception semantics are not fully replicated</li>
             <li><b>isDenyAllElse: true</b> — UC is already deny-by-default; this flag is noted but requires no extra SQL</li>
             <li><b>Security zones</b> — zone names appear as comments; zone boundaries have no UC equivalent (permissions apply to the whole metastore)</li>
-            <li><b>Tag-based policies</b> — GRANT/MASK is generated against a <code>&lt;table_placeholder&gt;</code>; you must manually replace it with the actual table that carries the tag</li>
-            <li><b>External Location names</b> — path policies generate <code>your_location_name</code> placeholder; replace with your actual external location</li>
+            <li><b>Tag-based policies (no resourceTags)</b> — when no resourceTags metadata is present, GRANTs are generated with a <code>&lt;table_with_TAG&gt;</code> placeholder; replace with actual tables. When resourceTags IS present, real table names are resolved automatically</li>
+            <li><b>External Location names</b> — path policies generate an <code>ext_loc_&lt;slug&gt;</code> placeholder; replace with your actual external location name</li>
+            <li><b>Row filters</b> — one function is generated per table combining all user/group logic into a single CASE statement (UC allows only one active row filter per table)</li>
             <li><b>Catalog name</b> — defaults to <code>main</code>; edit the catalog config if target is different</li>
           </ul>
         </div>
@@ -1021,10 +1025,10 @@ with tab_hist:
               <span class="badge badge-u">{stmts} SQL</span>
               {skip_badge}{warn_badge}
               <span style="margin-left:auto;display:flex;gap:10px;align-items:center;flex-shrink:0">
-                <span style="font-size:11px;color:{'var(--acc)' if inp_exists else 'var(--mut)'};font-family:var(--mono);white-space:nowrap" title="{inp_path}">
+                <span style="font-size:13px;color:{'var(--acc)' if inp_exists else 'var(--mut)'};font-family:var(--mono);white-space:nowrap" title="{inp_path}">
                   {"📋 " + inp_fname if inp_fname != "—" else ""}
                 </span>
-                <span style="font-size:11px;color:{'var(--pur)' if out_exists else 'var(--mut)'};font-family:var(--mono);white-space:nowrap" title="{out_path}">
+                <span style="font-size:13px;color:{'var(--pur)' if out_exists else 'var(--mut)'};font-family:var(--mono);white-space:nowrap" title="{out_path}">
                   {"📄 " + out_fname if out_fname != "—" else "—"}
                 </span>
               </span>
@@ -1054,19 +1058,25 @@ with tab_hist:
                         st.session_state[sk_sql] = not st.session_state[sk_sql]
                         st.rerun()
 
-            if st.session_state[sk_json] and inp_exists:
-                inp_content = Path(inp_path).read_text()
-                st.markdown(f'<div style="font-size:12px;color:var(--mut);margin:6px 0 4px">📋 {inp_path}</div>', unsafe_allow_html=True)
-                st.download_button("📥 Download JSON", data=inp_content, file_name=inp_fname,
-                                   mime="application/json", key=f"dljson_{row_key}", use_container_width=True)
-                st.code(inp_content, language="json")
+            show_json = st.session_state[sk_json] and inp_exists
+            show_sql  = st.session_state[sk_sql]  and out_exists
 
-            if st.session_state[sk_sql] and out_exists:
-                sql_content = Path(out_path).read_text()
-                st.markdown(f'<div style="font-size:12px;color:var(--mut);margin:6px 0 4px">📄 {out_path}</div>', unsafe_allow_html=True)
-                st.download_button("📥 Download SQL", data=sql_content, file_name=out_fname,
-                                   mime="text/plain", key=f"dlsql_{row_key}", use_container_width=True)
-                st.code(sql_content, language="sql", line_numbers=True)
+            if show_json or show_sql:
+                ccols = st.columns(2)
+                with ccols[0]:
+                    if show_json:
+                        inp_content = Path(inp_path).read_text()
+                        st.markdown(f'<div style="font-size:11px;color:var(--mut);margin:6px 0 4px">📋 {inp_fname}</div>', unsafe_allow_html=True)
+                        st.download_button("📥 Download JSON", data=inp_content, file_name=inp_fname,
+                                           mime="application/json", key=f"dljson_{row_key}", use_container_width=True)
+                        st.code(inp_content, language="json")
+                with ccols[1]:
+                    if show_sql:
+                        sql_content = Path(out_path).read_text()
+                        st.markdown(f'<div style="font-size:11px;color:var(--mut);margin:6px 0 4px">📄 {out_fname}</div>', unsafe_allow_html=True)
+                        st.download_button("📥 Download SQL", data=sql_content, file_name=out_fname,
+                                           mime="text/plain", key=f"dlsql_{row_key}", use_container_width=True)
+                        st.code(sql_content, language="sql", line_numbers=True)
 
         with st.expander("📋 Full table view"):
             df = pd.DataFrame(history)
