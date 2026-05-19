@@ -283,15 +283,15 @@ hr { border-color: var(--bdr) !important; margin: 8px 0 !important; }
 .cant-box li code { font-family: var(--mono); font-size: 10px; color: var(--mut); background: var(--sur2); padding: 1px 4px; border-radius: 3px; }
 
 .hist-row {
-  display: flex; align-items: center; gap: 8px;
-  padding: 8px 10px; border-radius: 6px;
-  border: 1px solid var(--bdr); margin-bottom: 5px;
-  background: var(--sur); font-size: 11px;
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 14px; border-radius: 6px;
+  border: 1px solid var(--bdr); margin-bottom: 6px;
+  background: var(--sur); font-size: 13px;
 }
 .hist-row:hover { background: var(--sur2); }
-.hist-ts { color: var(--mut); font-size: 10px; font-family: var(--mono); min-width: 130px; }
-.hist-src { color: var(--acc); font-weight: 600; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.hist-path { color: var(--pur); font-family: var(--mono); font-size: 10px; }
+.hist-ts { color: var(--mut); font-size: 12px; font-family: var(--mono); min-width: 145px; flex-shrink: 0; }
+.hist-src { color: var(--acc); font-weight: 600; font-size: 13px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hist-path { color: var(--pur); font-family: var(--mono); font-size: 11px; }
 
 .fi-row {
   display: flex; align-items: center; gap: 7px;
@@ -585,19 +585,11 @@ with tab_conv:
         </div>
         """, unsafe_allow_html=True)
 
-        btn_c1, btn_c2, btn_c3 = st.columns([1, 1, 1])
+        btn_c1, btn_c2 = st.columns([1, 1])
         with btn_c1:
             validate_clicked = st.button("✅ Validate", use_container_width=True, key="validate_btn")
         with btn_c2:
             translate_clicked = st.button("⚡ Translate", use_container_width=True, type="primary", key="translate_btn")
-        with btn_c3:
-            if st.session_state.translated_sql:
-                sql_content = format_sql(st.session_state.translated_sql)
-                st.download_button(
-                    "📥 Download", data=sql_content,
-                    file_name=f"uc_{datetime.now().strftime('%Y%m%d_%H%M%S')}.sql",
-                    mime="text/plain", use_container_width=True, key="dl_btn",
-                )
 
         # Validate
         if validate_clicked:
@@ -706,6 +698,15 @@ with tab_conv:
         # SQL output area
         if st.session_state.translated_sql:
             sql_content = format_sql(st.session_state.translated_sql)
+            # Download button here (below translate button) always renders after translation
+            st.download_button(
+                "📥 Download SQL",
+                data=sql_content,
+                file_name=f"uc_{st.session_state.source_name.replace('.json','') or 'output'}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.sql",
+                mime="text/plain",
+                use_container_width=True,
+                key="dl_btn_below",
+            )
             st.code(sql_content, language="sql", line_numbers=True)
         else:
             if st.session_state.current_json.strip():
@@ -1009,33 +1010,33 @@ with tab_hist:
               <span class="badge badge-ok">{policies} policies</span>
               <span class="badge badge-u">{stmts} SQL</span>
               {skip_badge}{warn_badge}
-              <span style="margin-left:auto;display:flex;gap:10px;align-items:center">
-                <span style="font-size:10px;color:{'var(--acc)' if inp_exists else 'var(--mut)'};font-family:var(--mono)" title="{inp_path}">
+              <span style="margin-left:auto;display:flex;gap:10px;align-items:center;flex-shrink:0">
+                <span style="font-size:11px;color:{'var(--acc)' if inp_exists else 'var(--mut)'};font-family:var(--mono);white-space:nowrap" title="{inp_path}">
                   {"📋 " + inp_fname if inp_fname != "—" else ""}
                 </span>
-                <span style="font-size:10px;color:{'var(--pur)' if out_exists else 'var(--mut)'};font-family:var(--mono)" title="{out_path}">
+                <span style="font-size:11px;color:{'var(--pur)' if out_exists else 'var(--mut)'};font-family:var(--mono);white-space:nowrap" title="{out_path}">
                   {"📄 " + out_fname if out_fname != "—" else "—"}
                 </span>
               </span>
             </div>
             """, unsafe_allow_html=True)
 
-            # View/download buttons
+            # Equal-width View buttons
             row_key = f"{ts_str}_{source[:8]}"
-            vcols = st.columns([1, 1, 6])
+            vcols = st.columns([1, 1])
             with vcols[0]:
-                if inp_exists and st.button("View JSON", key=f"viewjson_{row_key}"):
+                if inp_exists and st.button("📋 View Input JSON", key=f"viewjson_{row_key}", use_container_width=True):
                     with st.expander(f"Input JSON — {inp_fname}", expanded=True):
-                        st.markdown(f'<div style="font-size:10px;color:var(--mut);margin-bottom:6px">📋 {inp_path}</div>', unsafe_allow_html=True)
+                        st.markdown(f'<div style="font-size:12px;color:var(--mut);margin-bottom:8px">📋 {inp_path}</div>', unsafe_allow_html=True)
                         inp_content = Path(inp_path).read_text()
-                        st.download_button("📥 Download JSON", data=inp_content, file_name=inp_fname, mime="application/json", key=f"dljson_{row_key}")
+                        st.download_button("📥 Download JSON", data=inp_content, file_name=inp_fname, mime="application/json", key=f"dljson_{row_key}", use_container_width=True)
                         st.code(inp_content, language="json")
             with vcols[1]:
-                if out_exists and st.button("View SQL", key=f"viewsql_{row_key}"):
+                if out_exists and st.button("📄 View Output SQL", key=f"viewsql_{row_key}", use_container_width=True):
                     sql_content = Path(out_path).read_text()
                     with st.expander(f"SQL — {out_fname}", expanded=True):
-                        st.markdown(f'<div style="font-size:10px;color:var(--mut);margin-bottom:6px">📄 {out_path}</div>', unsafe_allow_html=True)
-                        st.download_button("📥 Download SQL", data=sql_content, file_name=out_fname, mime="text/plain", key=f"dlsql_{row_key}")
+                        st.markdown(f'<div style="font-size:12px;color:var(--mut);margin-bottom:8px">📄 {out_path}</div>', unsafe_allow_html=True)
+                        st.download_button("📥 Download SQL", data=sql_content, file_name=out_fname, mime="text/plain", key=f"dlsql_{row_key}", use_container_width=True)
                         st.code(sql_content, language="sql", line_numbers=True)
 
         with st.expander("📋 Full table view"):

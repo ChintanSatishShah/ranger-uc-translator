@@ -96,19 +96,18 @@ def format_sql_statement(sql: str, policy_name: Optional[str] = None,
     
     # Format the SQL statement
     sql = sql.strip()
-    
-    # Remove excessive whitespace
-    sql = re.sub(r'\s+', ' ', sql)
-    
-    # Add proper line breaks for readability
-    # Break before major keywords
-    sql = re.sub(r'\s+(FROM|WHERE|AND|OR|GROUP BY|ORDER BY|HAVING|LIMIT)\s+', r'\n  \1 ', sql, flags=re.IGNORECASE)
-    sql = re.sub(r'\s+(INNER|LEFT|RIGHT|FULL|CROSS)\s+JOIN\s+', r'\n  \1 JOIN ', sql, flags=re.IGNORECASE)
-    sql = re.sub(r'\s+(ON|TO|SET)\s+', r'\n  \1 ', sql, flags=re.IGNORECASE)
-    
+
+    # Normalise each line individually: collapse runs of spaces, trim edges.
+    # We intentionally preserve newlines so that multi-line constructs such as
+    # CREATE FUNCTION … RETURN CASE … END stay readable.
+    cleaned_lines = [re.sub(r'  +', ' ', line).rstrip() for line in sql.split('\n')]
+    # Drop blank lines produced by stripping
+    cleaned_lines = [l for l in cleaned_lines if l.strip()]
+    sql = '\n'.join(cleaned_lines)
+
     # Ensure semicolon at end
-    if not sql.strip().endswith(';'):
-        sql = sql.strip() + ';'
+    if not sql.endswith(';'):
+        sql += ';'
     
     # Combine header and SQL
     if header_lines:

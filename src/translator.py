@@ -207,22 +207,29 @@ class PolicyTranslator:
                 principals=[]
             )
 
+        # Determine the correct Databricks SQL object-type keyword for this resource.
+        # SCHEMA/CATALOG/FUNCTION already embed their keyword; plain 3-part paths are TABLE.
+        if resource.startswith(('CATALOG ', 'SCHEMA ', 'FUNCTION ', 'EXTERNAL LOCATION ')):
+            grant_resource = resource
+        else:
+            grant_resource = f"TABLE {resource}"
+
         # Generate GRANT statements
         is_first_stmt = True
         for item in policy.policy_items:
-            privileges = [self.config.get_privilege_mapping(acc['type']) 
+            privileges = [self.config.get_privilege_mapping(acc['type'])
                          for acc in item.accesses if acc.get('isAllowed', True)]
-            
+
             if not privileges:
                 continue
-            
+
             # Grant to users
             for user in item.users:
                 uc_user = self.config.get_principal_mapping(user)
                 principals.append(f"user:{uc_user}")
-                
+
                 for privilege in privileges:
-                    grant_sql = f"GRANT {privilege} ON {resource} TO `{uc_user}`"
+                    grant_sql = f"GRANT {privilege} ON {grant_resource} TO `{uc_user}`"
                     
                     # Add policy metadata to first statement only
                     if is_first_stmt:
@@ -242,16 +249,16 @@ class PolicyTranslator:
                 principals.append(f"group:{uc_group}")
 
                 for privilege in privileges:
-                    grant_sql = f"GRANT {privilege} ON {resource} TO `{uc_group}`"
+                    grant_sql = f"GRANT {privilege} ON {grant_resource} TO `{uc_group}`"
                     sql_statements.append(utils.format_sql_statement(grant_sql))
 
-            # Grant to roles (mapped to UC groups/service principals)
+            # Grant to roles
             for role in (item.roles or []):
                 uc_role = self.config.get_principal_mapping(role)
                 principals.append(f"role:{uc_role}")
 
                 for privilege in privileges:
-                    grant_sql = f"GRANT {privilege} ON {resource} TO `{uc_role}`"
+                    grant_sql = f"GRANT {privilege} ON {grant_resource} TO `{uc_role}`"
                     sql_statements.append(utils.format_sql_statement(grant_sql))
         
         if not sql_statements:
@@ -301,19 +308,67 @@ class PolicyTranslator:
         
         # Generate row filter for each filter item
         is_first_stmt = True
-        
+        sql_keywords = {'AND', 'OR', 'NOT', 'NULL', 'TRUE', 'FALSE', 'IS', 'IN',
+                        'LIKE', 'BETWEEN', 'EXISTS', 'CASE', 'WHEN', 'THEN', 'ELSE', 'END'}
+
         for idx, item in enumerate(policy.row_filter_items):
             if not item.filter_expr:
                 continue
-            
-            # Generate function name
+
             func_name = utils.generate_row_filter_function_name(table, policy.id, idx)
-            
-            # Create row filter function
-            create_filter = f"""CREATE OR REPLACE FUNCTION {catalog}.{schema}.{func_name}(row_data ANY TYPE)
-RETURN {item.filter_expr}"""
-            
-            # Add policy metadata to first statement only
+            qualified_func = f"{catalog}.{schema}.{func_name}"
+
+            # Extract column names referenced in the filter expression for the function
+            # signature and the ON (...) clause of ALTER TABLE SET ROW FILTER.
+            import re as _re
+            col_matches = _re.findall(
+                r'\b([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:=|!=|<>|<=|>=|<|>|(?:\s+(?:IN|LIKE|IS)\s))',
+                item.filter_expr, _re.IGNORECASE
+            )
+            filter_cols = [c for c in col_matches if c.upper() not in sql_keywords]
+            # Remove duplicates while preserving order
+            seen = set()
+            filter_cols = [c for c in filter_cols if not (c in seen or seen.add(c))]
+
+            if filter_cols:
+                params = ', '.join(f"{col} STRING" for col in filter_cols)
+                on_clause = ', '.join(filter_cols)
+            else:
+                params = ""
+                on_clause = ""
+
+            # Build CASE branches: each principal gets its own WHEN clause
+            # restricting to the filter expression; everyone else sees all rows (ELSE TRUE).
+            when_clauses = []
+            for u in item.users:
+                uc_u = self.config.get_principal_mapping(u)
+                principals.append(f"user:{uc_u}")
+                if item.filter_expr.strip():
+                    when_clauses.append(
+                        f"    WHEN current_user() = '{uc_u}'\n      THEN {item.filter_expr}"
+                    )
+            for g in item.groups:
+                uc_g = self.config.get_principal_mapping(g)
+                principals.append(f"group:{uc_g}")
+                if item.filter_expr.strip():
+                    when_clauses.append(
+                        f"    WHEN is_account_group_member('{uc_g}')\n      THEN {item.filter_expr}"
+                    )
+
+            if when_clauses:
+                case_body = "CASE\n" + "\n".join(when_clauses) + "\n    ELSE TRUE\n  END"
+                filter_body = case_body
+            elif item.filter_expr.strip():
+                filter_body = item.filter_expr
+            else:
+                filter_body = "TRUE"
+
+            create_filter = (
+                f"CREATE OR REPLACE FUNCTION {qualified_func}({params})\n"
+                f"RETURNS BOOLEAN\n"
+                f"RETURN\n  {filter_body}"
+            )
+
             if is_first_stmt:
                 sql_statements.append(utils.format_sql_statement(
                     create_filter,
@@ -324,21 +379,13 @@ RETURN {item.filter_expr}"""
                 is_first_stmt = False
             else:
                 sql_statements.append(utils.format_sql_statement(create_filter))
-            
-            # Build principal list for ALTER TABLE
-            principal_list = []
-            for user in item.users:
-                uc_user = self.config.get_principal_mapping(user)
-                principal_list.append(f"`{uc_user}`")
-                principals.append(f"user:{uc_user}")
-            
-            for group in item.groups:
-                uc_group = self.config.get_principal_mapping(group)
-                principal_list.append(f"`{uc_group}`")
-                principals.append(f"group:{uc_group}")
-            
-            # Apply row filter to table for specified users/groups
-            apply_filter = f"ALTER TABLE {resource} SET ROW FILTER {func_name} ON ({', '.join(principal_list)})"
+
+            # principals already appended inside when_clauses loop above
+            apply_filter = (
+                f"ALTER TABLE {resource}\n"
+                f"SET ROW FILTER {qualified_func}\n"
+                f"ON ({on_clause})"
+            )
             sql_statements.append(utils.format_sql_statement(apply_filter))
         
         if not sql_statements:
@@ -398,68 +445,57 @@ RETURN {item.filter_expr}"""
         is_first_stmt = True
         
         for column in columns:
-            # Collect all masking rules for this column
-            mask_none_users = []
-            mask_none_groups = []
+            # Collect masking rules: MASK_NONE means "pass-through" (see real value).
+            # All other mask types become the ELSE branch (masked expression).
+            passthrough_whens = []   # WHEN ... THEN column  (no masking)
             default_mask_type = None
-            
+
             for item in policy.masking_items:
                 mask_type = item.mask_type
-                
-                # Ranger MASK_NONE means no masking for these users/groups
                 if mask_type == 'MASK_NONE':
-                    mask_none_users.extend(item.users)
-                    mask_none_groups.extend(item.groups)
+                    for u in item.users:
+                        uc_u = self.config.get_principal_mapping(u)
+                        passthrough_whens.append(
+                            f"    WHEN current_user() = '{uc_u}'\n      THEN {column}"
+                        )
+                    for g in item.groups:
+                        uc_g = self.config.get_principal_mapping(g)
+                        passthrough_whens.append(
+                            f"    WHEN is_account_group_member('{uc_g}')\n      THEN {column}"
+                        )
                 else:
-                    # Use the first non-NONE mask type as default
                     if not default_mask_type:
                         default_mask_type = mask_type
-                    
-                    # Collect principals who can see masked data
-                    for user in item.users:
-                        uc_user = self.config.get_principal_mapping(user)
-                        principals.append(f"user:{uc_user}")
-                    
-                    for group in item.groups:
-                        uc_group = self.config.get_principal_mapping(group)
-                        principals.append(f"group:{uc_group}")
-            
-            # Generate mask function name
+                    for u in item.users:
+                        principals.append(f"user:{self.config.get_principal_mapping(u)}")
+                    for g in item.groups:
+                        principals.append(f"group:{self.config.get_principal_mapping(g)}")
+
+            if not default_mask_type:
+                default_mask_type = "MASK_REDACT"
+
             func_name = utils.generate_masking_function_name(table, column, default_mask_type)
-            
-            # Get masking function from config
+            qualified_func = f"{catalog}.{schema}.{func_name}"
             mask_func = MASKING_FUNCTIONS.get(default_mask_type, MASKING_FUNCTIONS["MASK_REDACT"])
-            
-            # Build CASE statement for conditional masking
-            conditions = []
-            
-            # Add conditions for MASK_NONE users (no masking)
-            if mask_none_users:
-                if len(mask_none_users) == 1:
-                    conditions.append(f"WHEN is_account_group_member('{mask_none_users[0]}') THEN {column}")
-                else:
-                    user_list = "', '".join(mask_none_users)
-                    conditions.append(f"WHEN current_user() IN ('{user_list}') THEN {column}")
-            
-            # Add conditions for MASK_NONE groups (no masking)
-            for group in mask_none_groups:
-                uc_group = self.config.get_principal_mapping(group)
-                conditions.append(f"WHEN is_account_group_member('{uc_group}') THEN {column}")
-            
-            # Default: apply masking
-            # Replace {column} placeholder in mask expression
             masked_expr = mask_func.replace("{column}", column)
-            conditions.append(f"ELSE {masked_expr}")
-            
-            case_statement = "\n    ".join(conditions)
-            
-            # Create masking function with CASE logic
-            create_func = f"""CREATE OR REPLACE FUNCTION {catalog}.{schema}.{func_name}({column} STRING)
-RETURN CASE
-    {case_statement}
-END"""
-            
-            # Add policy metadata to first statement only
+
+            # Build function body: CASE with passthrough WHENs then masked ELSE.
+            # If no passthrough rules exist, skip the CASE and return the masked
+            # expression directly (avoids invalid "CASE ELSE ... END" with no WHEN).
+            if passthrough_whens:
+                when_block = "\n".join(passthrough_whens)
+                func_body = (
+                    f"CASE\n{when_block}\n    ELSE {masked_expr}\n  END"
+                )
+            else:
+                func_body = masked_expr
+
+            create_func = (
+                f"CREATE OR REPLACE FUNCTION {qualified_func}({column} STRING)\n"
+                f"RETURNS STRING\n"
+                f"RETURN\n  {func_body}"
+            )
+
             if is_first_stmt:
                 sql_statements.append(utils.format_sql_statement(
                     create_func,
@@ -470,9 +506,13 @@ END"""
                 is_first_stmt = False
             else:
                 sql_statements.append(utils.format_sql_statement(create_func))
-            
-            # Apply mask to column for all users
-            apply_mask = f"ALTER TABLE {resource} ALTER COLUMN {column} SET MASK {func_name}"
+
+            # Fully qualified function name required in ALTER TABLE
+            apply_mask = (
+                f"ALTER TABLE {resource}\n"
+                f"ALTER COLUMN {column}\n"
+                f"SET MASK {qualified_func}"
+            )
             sql_statements.append(utils.format_sql_statement(apply_mask))
         
         if not sql_statements:
@@ -647,39 +687,34 @@ class EnhancedPolicyTranslator(PolicyTranslator):
             # Build full table path
             full_table = f"{catalog}.{database}.{table}"
             
-            # Generate mask function name
             func_name = utils.generate_masking_function_name(table, column, default_mask_type)
-            
-            # Build CASE statement for conditional masking
-            conditions = []
-            
-            # Add conditions for MASK_NONE users (no masking)
-            if mask_none_users:
-                if len(mask_none_users) == 1:
-                    conditions.append(f"WHEN is_account_group_member('{mask_none_users[0]}') THEN {column}")
-                else:
-                    user_list = "', '".join(mask_none_users)
-                    conditions.append(f"WHEN current_user() IN ('{user_list}') THEN {column}")
-            
-            # Add conditions for MASK_NONE groups (no masking)
-            for group in mask_none_groups:
-                uc_group = self.config.get_principal_mapping(group)
-                conditions.append(f"WHEN is_account_group_member('{uc_group}') THEN {column}")
-            
-            # Default: apply masking
-            # Replace {column} placeholder in mask expression
             masked_expr = mask_func.replace("{column}", column)
-            conditions.append(f"ELSE {masked_expr}")
-            
-            case_statement = "\n    ".join(conditions)
-            
-            # Create masking function
-            create_func = f"""CREATE OR REPLACE FUNCTION {catalog}.{database}.{func_name}({column} STRING)
-RETURN CASE
-    {case_statement}
-END"""
-            
-            # Add policy metadata to first statement only
+
+            # Build WHEN clauses for MASK_NONE principals (see real value)
+            passthrough_whens = []
+            for u in mask_none_users:
+                passthrough_whens.append(
+                    f"    WHEN current_user() = '{u}'\n      THEN {column}"
+                )
+            for g in mask_none_groups:
+                uc_g = self.config.get_principal_mapping(g)
+                passthrough_whens.append(
+                    f"    WHEN is_account_group_member('{uc_g}')\n      THEN {column}"
+                )
+
+            if passthrough_whens:
+                when_block = "\n".join(passthrough_whens)
+                func_body = f"CASE\n{when_block}\n    ELSE {masked_expr}\n  END"
+            else:
+                func_body = masked_expr
+
+            qualified_func = f"{catalog}.{database}.{func_name}"
+            create_func = (
+                f"CREATE OR REPLACE FUNCTION {qualified_func}({column} STRING)\n"
+                f"RETURNS STRING\n"
+                f"RETURN\n  {func_body}"
+            )
+
             if is_first_stmt:
                 sql_statements.append(utils.format_sql_statement(
                     create_func,
@@ -690,9 +725,12 @@ END"""
                 is_first_stmt = False
             else:
                 sql_statements.append(utils.format_sql_statement(create_func))
-            
-            # Apply mask to column
-            apply_mask = f"ALTER TABLE {full_table} ALTER COLUMN {column} SET MASK {func_name}"
+
+            apply_mask = (
+                f"ALTER TABLE {full_table}\n"
+                f"ALTER COLUMN {column}\n"
+                f"SET MASK {qualified_func}"
+            )
             sql_statements.append(utils.format_sql_statement(apply_mask))
         
         if not sql_statements:
