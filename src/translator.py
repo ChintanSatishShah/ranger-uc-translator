@@ -605,6 +605,108 @@ class EnhancedPolicyTranslator(PolicyTranslator):
         else:
             self.resource_tags = {}
     
+    def generate_tag_sql(self) -> List[str]:
+        """Generate ALTER TABLE SET TAGS statements from resource_tags + tag_definitions.
+
+        Each Ranger resource tag becomes a UC tag key='true' pair.
+        Tag definition attributes are included as additional key-value pairs.
+        Column-level tags use ALTER TABLE ... ALTER COLUMN ... SET TAGS.
+        Table-level tags use ALTER TABLE ... SET TAGS.
+
+        When no resource_tags are available for a given tag, a placeholder
+        statement is emitted so the operator knows a tag needs to be applied.
+        """
+        sql_statements = []
+        catalog = self.config.catalog
+
+        # ── Partition resource_tags by table vs column paths ────────────────────
+        table_level: dict = {}   # "schema.table" → [tag, ...]
+        column_level: dict = {}  # "schema.table" → {"col" → [tag, ...]}
+
+        for resource_path, tags in self.resource_tags.items():
+            parts = resource_path.split('.')
+            if len(parts) == 2:
+                table_level.setdefault(resource_path, []).extend(tags)
+            elif len(parts) == 3:
+                schema, table, column = parts
+                tkey = f"{schema}.{table}"
+                column_level.setdefault(tkey, {}).setdefault(column, []).extend(tags)
+
+        def _tag_pairs(tag_names: list) -> str:
+            """Build the 'key' = 'value' CSV for SET TAGS."""
+            pairs = []
+            seen_keys: set = set()
+            for tname in tag_names:
+                key = tname.lower()
+                if key not in seen_keys:
+                    seen_keys.add(key)
+                    pairs.append(f"'{key}' = 'true'")
+                # Include tag definition attributes (e.g. level, category)
+                tdef = self.tag_definitions.get(tname, {})
+                attrs = tdef.get('attributeDefs', {}) if isinstance(tdef, dict) else {}
+                for attr_k, attr_v in attrs.items():
+                    akey = attr_k.lower()
+                    if akey not in seen_keys:
+                        seen_keys.add(akey)
+                        pairs.append(f"'{akey}' = '{attr_v}'")
+            return ', '.join(pairs)
+
+        def _uc_table(schema: str, table: str) -> str:
+            return f"{catalog}.{self._quote_id(schema)}.{self._quote_id(table)}"
+
+        header_done = False
+
+        def _append_tagged(sql: str, *, first: bool = False) -> None:
+            nonlocal header_done
+            if first or not header_done:
+                sql_statements.append(utils.format_sql_statement(
+                    sql,
+                    policy_name="Tag Propagation",
+                    policy_description=(
+                        "Apply Unity Catalog tags to tables/columns based on "
+                        "Ranger resourceTags metadata. Run this before access grants."
+                    )
+                ))
+                header_done = True
+            else:
+                sql_statements.append(utils.format_sql_statement(sql))
+
+        # ── Table-level tags ────────────────────────────────────────────────────
+        for tkey in sorted(table_level):
+            parts = tkey.split('.')
+            schema, table = parts[0], parts[1]
+            pairs = _tag_pairs(table_level[tkey])
+            _append_tagged(f"ALTER TABLE {_uc_table(schema, table)} SET TAGS ({pairs})",
+                           first=not header_done)
+
+        # ── Column-level tags ───────────────────────────────────────────────────
+        for tkey in sorted(column_level):
+            parts = tkey.split('.')
+            schema, table = parts[0], parts[1]
+            for col in sorted(column_level[tkey]):
+                pairs = _tag_pairs(column_level[tkey][col])
+                _append_tagged(
+                    f"ALTER TABLE {_uc_table(schema, table)} "
+                    f"ALTER COLUMN {col} SET TAGS ({pairs})"
+                )
+
+        # ── Fallback: tag definitions with no matching resourceTags ─────────────
+        # Emit a placeholder statement so the operator knows these tags exist.
+        all_resource_tags_flat = set()
+        for tags in self.resource_tags.values():
+            all_resource_tags_flat.update(tags)
+        for tname in sorted(self.tag_definitions):
+            if tname not in all_resource_tags_flat:
+                pairs = _tag_pairs([tname])
+                _append_tagged(
+                    f"-- TODO: No resourceTags found for tag '{tname}'.\n"
+                    f"-- Apply this tag to the relevant table(s)/column(s):\n"
+                    f"ALTER TABLE {catalog}.{self.config.schema}.<table_name> "
+                    f"SET TAGS ({pairs})"
+                )
+
+        return sql_statements
+
     def _get_tagged_column_infos(self, tag_name: str) -> List[Dict]:
         """Return [{database, table, column}] for every resource_tags entry carrying tag_name."""
         result = []

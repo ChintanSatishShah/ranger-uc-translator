@@ -406,10 +406,15 @@ def run_translation(json_str: str, source_name: str):
     parser.parse_json(data)
     config = TranslationConfig(catalog="main", apply_grants=True)
     translator = EnhancedPolicyTranslator(config)
-    if "tagDefinitions" in data and "resourceTags" in data:
-        translator.set_tag_metadata(data["tagDefinitions"], data["resourceTags"])
+    if "tagDefinitions" in data or "resourceTags" in data:
+        translator.set_tag_metadata(
+            data.get("tagDefinitions", {}),
+            data.get("resourceTags", {})
+        )
+    # Emit SET TAGS statements first (tag propagation before access grants)
+    tag_sql = translator.generate_tag_sql()
     uc_policies = translator.translate_all(parser.policies)
-    sql_stmts = [s for up in uc_policies for s in up.sql_statements]
+    sql_stmts = tag_sql + [s for up in uc_policies for s in up.sql_statements]
     translatable = sum(1 for u in uc_policies if u.policy_type != "NOT_TRANSLATABLE")
     not_trans    = sum(1 for u in uc_policies if u.policy_type == "NOT_TRANSLATABLE")
     return parser, translator, sql_stmts, translatable, not_trans
