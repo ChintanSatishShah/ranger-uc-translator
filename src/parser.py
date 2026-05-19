@@ -154,11 +154,21 @@ class RangerPolicyParser:
     def _parse_policy(self, policy_data: Dict[str, Any]) -> Optional[RangerPolicy]:
         """Parse a single Ranger policy."""
         try:
-            # Numeric policyType field (0=access, 1=mask, 2=rowfilter) takes precedence
+            # Explicit numeric policyType takes precedence over presence of item keys.
+            # A tag policy (policyType=0) can legally contain rowFilterPolicyItems and
+            # dataMaskPolicyItems for different principals — don't let their presence
+            # override the declared type.
             numeric_type = policy_data.get('policyType')
-            if numeric_type == 1 or 'dataMaskPolicyItems' in policy_data:
+            if numeric_type is not None:
+                if numeric_type == 1:
+                    policy_type = PolicyType.COLUMN_MASK
+                elif numeric_type == 2:
+                    policy_type = PolicyType.ROW_FILTER
+                else:
+                    policy_type = PolicyType.ACCESS
+            elif 'dataMaskPolicyItems' in policy_data:
                 policy_type = PolicyType.COLUMN_MASK
-            elif numeric_type == 2 or 'rowFilterPolicyItems' in policy_data:
+            elif 'rowFilterPolicyItems' in policy_data:
                 policy_type = PolicyType.ROW_FILTER
             else:
                 policy_type = PolicyType.ACCESS
@@ -172,22 +182,14 @@ class RangerPolicyParser:
                     is_recursive=res_data.get('isRecursive', False)
                 )
 
-            policy_items = None
-            deny_policy_items = None
-            allow_exceptions = None
-            deny_exceptions = None
-            row_filter_items = None
-            masking_items = None
-
-            if policy_type == PolicyType.ACCESS:
-                policy_items = self._parse_policy_items(policy_data.get('policyItems', []))
-                deny_policy_items = self._parse_policy_items(policy_data.get('denyPolicyItems', []))
-                allow_exceptions = self._parse_policy_items(policy_data.get('allowExceptions', []))
-                deny_exceptions = self._parse_policy_items(policy_data.get('denyExceptions', []))
-            elif policy_type == PolicyType.ROW_FILTER:
-                row_filter_items = self._parse_row_filter_items(policy_data.get('rowFilterPolicyItems', []))
-            elif policy_type == PolicyType.COLUMN_MASK:
-                masking_items = self._parse_masking_items(policy_data.get('dataMaskPolicyItems', []))
+            # Always parse all item types — a single tag policy can carry access,
+            # row-filter, and masking items simultaneously for different principals.
+            policy_items = self._parse_policy_items(policy_data.get('policyItems', []))
+            deny_policy_items = self._parse_policy_items(policy_data.get('denyPolicyItems', []))
+            allow_exceptions = self._parse_policy_items(policy_data.get('allowExceptions', []))
+            deny_exceptions = self._parse_policy_items(policy_data.get('denyExceptions', []))
+            row_filter_items = self._parse_row_filter_items(policy_data.get('rowFilterPolicyItems', []))
+            masking_items = self._parse_masking_items(policy_data.get('dataMaskPolicyItems', []))
 
             return RangerPolicy(
                 id=policy_data.get('id', 0),

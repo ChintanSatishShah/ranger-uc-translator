@@ -24,8 +24,8 @@ PRIVILEGE_MAPPING = {
     "read": "SELECT",
     "update": "MODIFY",
     "write": "MODIFY",
-    "create": "CREATE",
-    "drop": "DROP",
+    "create": "CREATE",       # remapped context-sensitively in translator
+    "drop": "MANAGE",         # UC has no DROP privilege; MANAGE is the closest equivalent
     "alter": "ALTER",
     "all": "ALL PRIVILEGES",
     "admin": "ALL PRIVILEGES"

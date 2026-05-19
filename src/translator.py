@@ -120,19 +120,20 @@ class PolicyTranslator:
                 uc_policies.append(uc_policy)
         return uc_policies
     
+    @staticmethod
+    def _quote_id(name: str) -> str:
+        """Backtick-quote a SQL identifier that contains hyphens or other special chars."""
+        import re as _re
+        if _re.search(r'[^a-zA-Z0-9_]', name):
+            return f"`{name}`"
+        return name
+
     def _build_resource_path(self, resources: Dict) -> Optional[str]:
-        """Build UC resource path from Ranger resources.
-        
-        Handles three cases:
-        1. Tag-based policies: Uses placeholder <table_with_TAG_NAME>
-        2. Table with database: catalog.database.table
-        3. Table without database: catalog.default_schema.table
-        """
-        # Check if this is a tag-based policy (uses 'tag' instead of 'table')
+        """Build UC resource path from Ranger resources."""
+        # Tag-based policies are resolved by EnhancedPolicyTranslator via resource_tags
         tag_resource = resources.get('tag')
         if tag_resource and tag_resource.values:
-            # Create placeholder for tag-based resources
-            tag_names = '_'.join(tag_resource.values)  # Handle multiple tags
+            tag_names = '_'.join(tag_resource.values)
             catalog = self.config.catalog
             schema = self.config.schema
             placeholder = f"<table_with_{tag_names}>"
@@ -141,7 +142,7 @@ class PolicyTranslator:
                 f"with actual table name(s) that have tag(s): {', '.join(tag_resource.values)}"
             )
             return f"{catalog}.{schema}.{placeholder}"
-        
+
         catalog = self.config.catalog
         db_resource = resources.get('database')
         table_resource = resources.get('table')
@@ -159,7 +160,7 @@ class PolicyTranslator:
         if udf_resource and udf_resource.values and not table_resource:
             schema = db_val or self.config.schema
             udf = udf_resource.values[0]
-            return f"FUNCTION {catalog}.{schema}.{udf}"
+            return f"FUNCTION {catalog}.{self._quote_id(schema)}.{self._quote_id(udf)}"
 
         # Catalog-wide: database=* with no specific table
         if db_val == '*' and (not table_val or table_val == '*'):
@@ -167,7 +168,7 @@ class PolicyTranslator:
 
         # Schema-level: database specified but no table (or table=*)
         if db_val and (not table_val or table_val == '*'):
-            return f"SCHEMA {catalog}.{db_val}"
+            return f"SCHEMA {catalog}.{self._quote_id(db_val)}"
 
         # Table-level
         if table_val:
@@ -176,8 +177,8 @@ class PolicyTranslator:
             # as a single UC table reference — fall back to schema-level grant.
             import re as _re
             if '*' in table_val or ':' in table_val or _re.search(r'[^a-zA-Z0-9_`\-]', table_val):
-                return f"SCHEMA {catalog}.{schema}"
-            return f"{catalog}.{schema}.{table_val}"
+                return f"SCHEMA {catalog}.{self._quote_id(schema)}"
+            return f"{catalog}.{self._quote_id(schema)}.{self._quote_id(table_val)}"
 
         return None
     
@@ -228,14 +229,15 @@ class PolicyTranslator:
             grant_resource = resource
 
         def _remap_privilege(privilege: str, is_table: bool) -> str:
-            """Remap privileges invalid at table level to their correct UC equivalent.
+            """Remap privileges to valid UC equivalents.
 
-            In Databricks UC, CREATE is not a table-level privilege.
-            GRANT CREATE TABLE must target a SCHEMA. We emit a SCHEMA-level
-            grant with a comment rather than invalid GRANT CREATE ON TABLE.
+            - CREATE at table level → None (handled separately as CREATE TABLE ON SCHEMA)
+            - CREATE at schema level → CREATE TABLE (GRANT CREATE TABLE ON SCHEMA is the UC form)
             """
-            if is_table and privilege == 'CREATE':
-                return None  # handled separately below as schema-level CREATE TABLE
+            if privilege == 'CREATE':
+                if is_table:
+                    return None  # emitted separately as GRANT CREATE TABLE ON SCHEMA
+                return 'CREATE TABLE'  # GRANT CREATE TABLE ON SCHEMA is valid UC syntax
             return privilege
 
         def _schema_from_resource(resource_path: str) -> str:
@@ -332,90 +334,82 @@ class PolicyTranslator:
         if len(parts) != 3:
             self.errors.append(f"Invalid table path for row filter: {resource}")
             return None
-        
-        catalog, schema, table = parts
-        
-        # Generate row filter for each filter item
-        is_first_stmt = True
-        sql_keywords = {'AND', 'OR', 'NOT', 'NULL', 'TRUE', 'FALSE', 'IS', 'IN',
-                        'LIKE', 'BETWEEN', 'EXISTS', 'CASE', 'WHEN', 'THEN', 'ELSE', 'END'}
 
-        for idx, item in enumerate(policy.row_filter_items):
+        catalog, schema, table = parts
+
+        # UC only supports ONE active row filter per table.
+        # Merge all filter items into a single function with a CASE statement where
+        # each WHEN branch handles a specific principal's filter expression.
+        import re as _re
+        sql_keywords = {'AND', 'OR', 'NOT', 'NULL', 'TRUE', 'FALSE', 'IS', 'IN',
+                        'LIKE', 'BETWEEN', 'EXISTS', 'CASE', 'WHEN', 'THEN', 'ELSE', 'END',
+                        'CURRENT_DATE', 'CURRENT_TIMESTAMP', 'CURRENT_USER'}
+
+        # Collect all WHEN clauses and all referenced columns across every item
+        all_when_clauses = []
+        all_filter_cols_ordered = []
+        seen_cols: set = set()
+
+        for item in policy.row_filter_items:
             if not item.filter_expr:
                 continue
-
-            func_name = utils.generate_row_filter_function_name(table, policy.id, idx)
-            qualified_func = f"{catalog}.{schema}.{func_name}"
-
-            # Extract column names referenced in the filter expression for the function
-            # signature and the ON (...) clause of ALTER TABLE SET ROW FILTER.
-            import re as _re
             col_matches = _re.findall(
                 r'\b([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:=|!=|<>|<=|>=|<|>|(?:\s+(?:IN|LIKE|IS)\s))',
                 item.filter_expr, _re.IGNORECASE
             )
-            filter_cols = [c for c in col_matches if c.upper() not in sql_keywords]
-            # Remove duplicates while preserving order
-            seen = set()
-            filter_cols = [c for c in filter_cols if not (c in seen or seen.add(c))]
+            for c in col_matches:
+                if c.upper() not in sql_keywords and c not in seen_cols:
+                    seen_cols.add(c)
+                    all_filter_cols_ordered.append(c)
 
-            if filter_cols:
-                params = ', '.join(f"{col} STRING" for col in filter_cols)
-                on_clause = ', '.join(filter_cols)
-            else:
-                params = ""
-                on_clause = ""
-
-            # Build CASE branches: each principal gets its own WHEN clause
-            # restricting to the filter expression; everyone else sees all rows (ELSE TRUE).
-            when_clauses = []
             for u in item.users:
                 uc_u = self.config.get_principal_mapping(u)
                 principals.append(f"user:{uc_u}")
-                if item.filter_expr.strip():
-                    when_clauses.append(
-                        f"    WHEN current_user() = '{uc_u}'\n      THEN {item.filter_expr}"
-                    )
+                all_when_clauses.append(
+                    f"    WHEN current_user() = '{uc_u}'\n      THEN {item.filter_expr}"
+                )
             for g in item.groups:
                 uc_g = self.config.get_principal_mapping(g)
                 principals.append(f"group:{uc_g}")
-                if item.filter_expr.strip():
-                    when_clauses.append(
-                        f"    WHEN is_account_group_member('{uc_g}')\n      THEN {item.filter_expr}"
-                    )
+                all_when_clauses.append(
+                    f"    WHEN is_account_group_member('{uc_g}')\n      THEN {item.filter_expr}"
+                )
 
-            if when_clauses:
-                case_body = "CASE\n" + "\n".join(when_clauses) + "\n    ELSE TRUE\n  END"
-                filter_body = case_body
-            elif item.filter_expr.strip():
-                filter_body = item.filter_expr
-            else:
-                filter_body = "TRUE"
+        if not all_when_clauses and not policy.row_filter_items:
+            return None
 
-            create_filter = (
-                f"CREATE OR REPLACE FUNCTION {qualified_func}({params})\n"
-                f"RETURNS BOOLEAN\n"
-                f"RETURN\n  {filter_body}"
-            )
+        # Single function name for the whole policy (not per-item)
+        func_name = utils.generate_row_filter_function_name(table, policy.id, 0)
+        qualified_func = f"{catalog}.{schema}.{func_name}"
 
-            if is_first_stmt:
-                sql_statements.append(utils.format_sql_statement(
-                    create_filter,
-                    policy_name=policy.name,
-                    policy_id=str(policy.id),
-                    policy_description=policy.description
-                ))
-                is_first_stmt = False
-            else:
-                sql_statements.append(utils.format_sql_statement(create_filter))
+        params = ', '.join(f"{c} STRING" for c in all_filter_cols_ordered)
+        on_clause = ', '.join(all_filter_cols_ordered)
 
-            # principals already appended inside when_clauses loop above
-            apply_filter = (
-                f"ALTER TABLE {resource}\n"
-                f"SET ROW FILTER {qualified_func}\n"
-                f"ON ({on_clause})"
-            )
-            sql_statements.append(utils.format_sql_statement(apply_filter))
+        if all_when_clauses:
+            filter_body = "CASE\n" + "\n".join(all_when_clauses) + "\n    ELSE TRUE\n  END"
+        elif policy.row_filter_items and policy.row_filter_items[0].filter_expr:
+            filter_body = policy.row_filter_items[0].filter_expr
+        else:
+            filter_body = "TRUE"
+
+        create_filter = (
+            f"CREATE OR REPLACE FUNCTION {qualified_func}({params})\n"
+            f"RETURNS BOOLEAN\n"
+            f"RETURN\n  {filter_body}"
+        )
+        sql_statements.append(utils.format_sql_statement(
+            create_filter,
+            policy_name=policy.name,
+            policy_id=str(policy.id),
+            policy_description=policy.description
+        ))
+
+        apply_filter = (
+            f"ALTER TABLE {resource}\n"
+            f"SET ROW FILTER {qualified_func}\n"
+            f"ON ({on_clause})"
+        )
+        sql_statements.append(utils.format_sql_statement(apply_filter))
         
         if not sql_statements:
             return None
@@ -611,55 +605,282 @@ class EnhancedPolicyTranslator(PolicyTranslator):
         else:
             self.resource_tags = {}
     
-    def _get_tagged_columns(self, tag_name: str) -> List[Dict]:
-        """Find all columns tagged with the specified tag.
-        
-        Returns:
-            List of dicts with keys: database, table, column
-        """
-        tagged_columns = []
-        
-        # Iterate through resource_tags dict
+    def _get_tagged_column_infos(self, tag_name: str) -> List[Dict]:
+        """Return [{database, table, column}] for every resource_tags entry carrying tag_name."""
+        result = []
         for resource_path, tags in self.resource_tags.items():
-            # Check if this resource has the specified tag
-            if tag_name in tags:
-                # Parse resource path: expected format is "database.table.column"
-                parts = resource_path.split('.')
-                
-                if len(parts) == 3:
-                    database, table, column = parts
-                elif len(parts) == 2:
-                    # No database specified, use default schema
-                    table, column = parts
-                    database = self.config.schema
-                else:
-                    # Invalid format, skip
-                    continue
-                
-                # Skip wildcard columns
-                if column != '*':
-                    tagged_columns.append({
-                        'database': database,
-                        'table': table,
-                        'column': column
-                    })
-        
-        return tagged_columns
-    
+            if tag_name not in tags:
+                continue
+            parts = resource_path.split('.')
+            if len(parts) == 3:
+                database, table, column = parts
+            elif len(parts) == 2:
+                table, column = parts
+                database = self.config.schema
+            else:
+                continue
+            if column != '*':
+                result.append({'database': database, 'table': table, 'column': column})
+        return result
+
+
+    def _get_tagged_tables(self, policy_tags: set) -> dict:
+        """Return {schema.table -> set(matching_tags)} for all resources whose tags
+        intersect with policy_tags.  Handles both schema.table and schema.table.column paths."""
+        tagged_tables = {}
+        for resource_path, tags in self.resource_tags.items():
+            matching = set(tags) & policy_tags
+            if not matching:
+                continue
+            parts = resource_path.split('.')
+            table_key = '.'.join(parts[:2]) if len(parts) >= 2 else resource_path
+            tagged_tables.setdefault(table_key, set()).update(matching)
+        return tagged_tables
+
     def translate(self, policy: RangerPolicy) -> Optional[UCPolicy]:
-        """Translate a single Ranger policy to UC format.
-        
-        Overrides parent to handle tag-based column masking policies.
-        """
-        # Check if this is a tag-based column masking policy
-        if policy.policy_type == PolicyType.COLUMN_MASK:
-            tag_resource = policy.resources.get('tag')
-            if tag_resource and tag_resource.values:
-                # This is a tag-based policy
+        """Translate a single Ranger policy to UC format."""
+        tag_resource = policy.resources.get('tag')
+        if tag_resource and tag_resource.values:
+            # Tag-based policy — dispatch by primary type, then emit supplemental items
+            if policy.policy_type == PolicyType.COLUMN_MASK:
                 return self._translate_tag_based_column_mask(policy)
-        
-        # Otherwise use parent implementation
+            # ACCESS (and ROW_FILTER declared as access) → real table grants
+            return self._translate_tag_based_access(policy)
+
         return super().translate(policy)
+
+    def _translate_tag_based_access(self, policy: RangerPolicy) -> Optional[UCPolicy]:
+        """Translate a tag-based ACCESS policy into GRANT statements.
+
+        Looks up resource_tags to resolve actual table paths for every tag in the policy.
+        Falls back to a placeholder comment when no tag metadata is available.
+        Also emits supplemental row-filter functions and masking functions if the same
+        policy carries rowFilterPolicyItems / dataMaskPolicyItems for other principals.
+        """
+        tag_resource = policy.resources.get('tag')
+        policy_tags = set(tag_resource.values)
+        catalog = self.config.catalog
+
+        tagged_tables = self._get_tagged_tables(policy_tags)
+        sql_statements = []
+        principals = []
+        is_first = True
+
+        # ── Helper to append a formatted statement ─────────────────────────────
+        def _append(sql, *, with_header=False):
+            nonlocal is_first
+            if with_header or is_first:
+                sql_statements.append(utils.format_sql_statement(
+                    sql,
+                    policy_name=policy.name,
+                    policy_id=str(policy.id),
+                    policy_description=policy.description
+                ))
+                is_first = False
+            else:
+                sql_statements.append(utils.format_sql_statement(sql))
+
+        # ── ACCESS grants ───────────────────────────────────────────────────────
+        if policy.policy_items:
+            if tagged_tables:
+                for table_key in sorted(tagged_tables):
+                    parts = table_key.split('.')
+                    schema, table = parts[0], parts[1]
+                    uc_table = f"{catalog}.{self._quote_id(schema)}.{self._quote_id(table)}"
+                    is_table_level = True
+
+                    for item in policy.policy_items:
+                        raw_privs = [self.config.get_privilege_mapping(a['type'])
+                                     for a in item.accesses if a.get('isAllowed', True)]
+                        if not raw_privs:
+                            continue
+                        all_p = (
+                            [('user', self.config.get_principal_mapping(u)) for u in item.users] +
+                            [('group', self.config.get_principal_mapping(g)) for g in item.groups] +
+                            [('role', self.config.get_principal_mapping(r)) for r in (item.roles or [])]
+                        )
+                        for ptype, pname in all_p:
+                            principals.append(f"{ptype}:{pname}")
+                        for _, pname in all_p:
+                            for priv in raw_privs:
+                                if is_table_level and priv == 'CREATE':
+                                    _append(
+                                        f"-- NOTE: Ranger 'create' maps to schema-level privilege.\n"
+                                        f"GRANT CREATE TABLE ON SCHEMA {catalog}.{schema} TO `{pname}`"
+                                    )
+                                else:
+                                    _append(f"GRANT {priv} ON TABLE {uc_table} TO `{pname}`")
+            else:
+                # No tag metadata — emit placeholder GRANTs with a clear note
+                tag_list = '_'.join(sorted(policy_tags))
+                placeholder = f"{catalog}.{self.config.schema}.<table_with_{tag_list}>"
+                note = (
+                    f"-- NOTE: No resourceTags metadata found for tag(s): {', '.join(sorted(policy_tags))}.\n"
+                    f"-- Replace the placeholder with the actual table(s) that carry these tags."
+                )
+                for item in policy.policy_items:
+                    raw_privs = [self.config.get_privilege_mapping(a['type'])
+                                 for a in item.accesses if a.get('isAllowed', True)]
+                    all_p = (
+                        [('user', self.config.get_principal_mapping(u)) for u in item.users] +
+                        [('group', self.config.get_principal_mapping(g)) for g in item.groups] +
+                        [('role', self.config.get_principal_mapping(r)) for r in (item.roles or [])]
+                    )
+                    for ptype, pname in all_p:
+                        principals.append(f"{ptype}:{pname}")
+                    for _, pname in all_p:
+                        for priv in raw_privs:
+                            if priv == 'CREATE':
+                                schema_path = f"{catalog}.{self.config.schema}"
+                                _append(
+                                    f"-- NOTE: Ranger 'create' maps to schema-level privilege.\n"
+                                    f"GRANT CREATE TABLE ON SCHEMA {schema_path} TO `{pname}`"
+                                )
+                            else:
+                                _append(f"{note}\nGRANT {priv} ON TABLE {placeholder} TO `{pname}`")
+
+        # ── Deny policy items (UC has no SQL DENY — document as comment) ────────
+        if policy.deny_policy_items:
+            deny_lines = [
+                "-- DENY POLICY (not directly expressible in Databricks UC SQL):",
+                "-- The following principals were DENIED access in Ranger.",
+                "-- Implement via UC row/column filters or explicit permission exclusion.",
+            ]
+            for item in policy.deny_policy_items:
+                for u in item.users:
+                    deny_lines.append(f"--   DENY user: {u}")
+                for g in item.groups:
+                    deny_lines.append(f"--   DENY group: {g}")
+            _append('\n'.join(deny_lines))
+
+        # ── Supplemental row-filter items (e.g. from a mixed tag policy) ────────
+        if policy.row_filter_items and tagged_tables:
+            import re as _re
+            sql_keywords = {'AND', 'OR', 'NOT', 'NULL', 'TRUE', 'FALSE', 'IS', 'IN',
+                            'LIKE', 'BETWEEN', 'EXISTS', 'CASE', 'WHEN', 'THEN', 'ELSE', 'END'}
+            for table_key in sorted(tagged_tables):
+                parts = table_key.split('.')
+                schema, table = parts[0], parts[1]
+                uc_table = f"{catalog}.{self._quote_id(schema)}.{self._quote_id(table)}"
+                for idx, item in enumerate(policy.row_filter_items):
+                    if not item.filter_expr:
+                        continue
+                    func_name = utils.generate_row_filter_function_name(table, policy.id, idx)
+                    qualified_func = f"{catalog}.{schema}.{func_name}"
+                    col_matches = _re.findall(
+                        r'\b([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:=|!=|<>|<=|>=|<|>|(?:\s+(?:IN|LIKE|IS)\s))',
+                        item.filter_expr, _re.IGNORECASE
+                    )
+                    filter_cols = list(dict.fromkeys(
+                        c for c in col_matches if c.upper() not in sql_keywords
+                    ))
+                    params = ', '.join(f"{c} STRING" for c in filter_cols) if filter_cols else ""
+                    on_clause = ', '.join(filter_cols)
+                    when_clauses = []
+                    for u in item.users:
+                        uc_u = self.config.get_principal_mapping(u)
+                        principals.append(f"user:{uc_u}")
+                        when_clauses.append(
+                            f"    WHEN current_user() = '{uc_u}'\n      THEN {item.filter_expr}"
+                        )
+                    for g in item.groups:
+                        uc_g = self.config.get_principal_mapping(g)
+                        principals.append(f"group:{uc_g}")
+                        when_clauses.append(
+                            f"    WHEN is_account_group_member('{uc_g}')\n      THEN {item.filter_expr}"
+                        )
+                    if when_clauses:
+                        body = "CASE\n" + "\n".join(when_clauses) + "\n    ELSE TRUE\n  END"
+                    else:
+                        body = item.filter_expr or "TRUE"
+                    _append(
+                        f"CREATE OR REPLACE FUNCTION {qualified_func}({params})\n"
+                        f"RETURNS BOOLEAN\n"
+                        f"RETURN\n  {body}"
+                    )
+                    _append(
+                        f"ALTER TABLE {uc_table}\n"
+                        f"SET ROW FILTER {qualified_func}\n"
+                        f"ON ({on_clause})"
+                    )
+
+        # ── Supplemental masking items ───────────────────────────────────────────
+        if policy.masking_items and tagged_tables:
+            for table_key in sorted(tagged_tables):
+                parts = table_key.split('.')
+                schema, table = parts[0], parts[1]
+                uc_table = f"{catalog}.{self._quote_id(schema)}.{self._quote_id(table)}"
+                # Collect unique column names tagged under this table from resource_tags
+                tagged_columns_for_table = []
+                for rpath, rtags in self.resource_tags.items():
+                    rparts = rpath.split('.')
+                    if (len(rparts) == 3 and
+                            rparts[0] == schema and rparts[1] == table and
+                            set(rtags) & policy_tags):
+                        col = rparts[2]
+                        if col not in tagged_columns_for_table:
+                            tagged_columns_for_table.append(col)
+                if not tagged_columns_for_table:
+                    tagged_columns_for_table = ['<column>']
+
+                default_mask_type = next(
+                    (it.mask_type for it in policy.masking_items if it.mask_type != 'MASK_NONE'),
+                    'MASK_REDACT'
+                )
+                mask_func = MASKING_FUNCTIONS.get(default_mask_type, MASKING_FUNCTIONS['MASK_REDACT'])
+                type_meta = MASKING_FUNCTION_TYPES.get(
+                    default_mask_type, {"param_type": "STRING", "return_type": "STRING"}
+                )
+                passthrough_whens = []
+                for item in policy.masking_items:
+                    if item.mask_type == 'MASK_NONE':
+                        for u in item.users:
+                            uc_u = self.config.get_principal_mapping(u)
+                            passthrough_whens.append(
+                                f"    WHEN current_user() = '{uc_u}'\n      THEN {{col}}"
+                            )
+                        for g in item.groups:
+                            uc_g = self.config.get_principal_mapping(g)
+                            passthrough_whens.append(
+                                f"    WHEN is_account_group_member('{uc_g}')\n      THEN {{col}}"
+                            )
+                    else:
+                        for u in item.users:
+                            principals.append(f"user:{self.config.get_principal_mapping(u)}")
+                        for g in item.groups:
+                            principals.append(f"group:{self.config.get_principal_mapping(g)}")
+
+                for col in tagged_columns_for_table:
+                    masked_expr = mask_func.replace('{column}', col)
+                    whens = [w.replace('{col}', col) for w in passthrough_whens]
+                    if whens:
+                        func_body = "CASE\n" + "\n".join(whens) + f"\n    ELSE {masked_expr}\n  END"
+                    else:
+                        func_body = masked_expr
+                    func_name = utils.generate_masking_function_name(table, col, default_mask_type)
+                    qualified_func = f"{catalog}.{schema}.{func_name}"
+                    _append(
+                        f"CREATE OR REPLACE FUNCTION {qualified_func}({col} {type_meta['param_type']})\n"
+                        f"RETURNS {type_meta['return_type']}\n"
+                        f"RETURN\n  {func_body}"
+                    )
+                    _append(
+                        f"ALTER TABLE {uc_table}\n"
+                        f"ALTER COLUMN {col}\n"
+                        f"SET MASK {qualified_func}"
+                    )
+
+        if not sql_statements:
+            return None
+
+        return UCPolicy(
+            policy_id=str(policy.id),
+            policy_type="ACCESS_TAG",
+            sql_statements=sql_statements,
+            description=policy.description or f"Tag-based access for: {', '.join(sorted(policy_tags))}",
+            resource=f"TAG {', '.join(sorted(policy_tags))}",
+            principals=list(dict.fromkeys(principals))
+        )
     
     def _translate_tag_based_column_mask(self, policy: RangerPolicy) -> Optional[UCPolicy]:
         """Translate tag-based column masking policy to UC masking functions.
@@ -711,7 +932,7 @@ class EnhancedPolicyTranslator(PolicyTranslator):
         mask_func = MASKING_FUNCTIONS.get(default_mask_type, MASKING_FUNCTIONS["MASK_HASH"])
         
         # Find columns with this tag
-        tagged_columns = self._get_tagged_columns(tag_name)
+        tagged_columns = self._get_tagged_column_infos(tag_name)
         
         # Generate masking SQL for each tagged column
         is_first_stmt = True
